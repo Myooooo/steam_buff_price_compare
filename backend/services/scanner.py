@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from typing import Any, Awaitable, Callable, Optional
 
@@ -473,17 +474,63 @@ class Scanner:
             async with self.db_lock:
                 db.save_assets(self.db_conn, targets)
 
-    async def _price_item(self, item: dict[str, Any], cfg: Config, scan_id: int) -> bool:
-        price = await steam_svc.get_price(
-            self.steam_session,
-            item["market_hash_name"],
-            appid=cfg.steam_appid,
-            currency=cfg.currency,
-            delay_sec=cfg.steam_delay_sec,
-            reference_usd=item.get("steam_reference_usd"),
-            reference_cny=item.get("steam_reference_cny"),
-            allow_reference_fallback=cfg.steam_buff_fallback,
+    async def _get_steam_price(
+        self,
+        item: dict[str, Any],
+        cfg: Config,
+    ) -> Optional[steam_svc.SteamPrice]:
+        """按当前 429 策略查询价格；等待模式会重试同一商品。"""
+        while True:
+            try:
+                return await steam_svc.get_price(
+                    self.steam_session,
+                    item["market_hash_name"],
+                    appid=cfg.steam_appid,
+                    currency=cfg.currency,
+                    delay_sec=cfg.steam_delay_sec,
+                    reference_usd=item.get("steam_reference_usd"),
+                    reference_cny=item.get("steam_reference_cny"),
+                    allow_reference_fallback=cfg.steam_buff_fallback,
+                    rate_limit_mode=self.get_config().steam_rate_limit_mode,
+                )
+            except steam_svc.SteamRateLimitedError as exc:
+                await self._wait_for_steam_retry(item["market_hash_name"], exc.retry_after_sec)
+
+    async def _wait_for_steam_retry(self, market_hash_name: str, wait_seconds: float) -> None:
+        """广播 Steam 限流倒计时；取消扫描会直接取消这里的 sleep。"""
+        base_progress = dict(self.progress)
+        if self.current_mode == "deepscan":
+            deep = db.get_deep_progress(self.db_conn, self.get_config().game)
+            if deep:
+                base_progress = {"mode": "deepscan", **deep}
+        deadline = time.monotonic() + max(0.0, wait_seconds)
+        logger.warning(
+            "Steam 429，扫描暂停 %.0f 秒后重试当前商品: %s",
+            wait_seconds,
+            market_hash_name,
         )
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            if self.get_config().steam_rate_limit_mode == "buff_fallback":
+                logger.info("Steam 429 策略已切换为 BUFF 参考价，结束等待: %s", market_hash_name)
+                break
+            self.progress = {
+                **base_progress,
+                "phase": "steam_rate_limit_wait",
+                "resume_phase": base_progress.get("phase", "pricing"),
+                "rate_limit_wait_remaining": max(1, math.ceil(remaining)),
+                "current_item": market_hash_name,
+            }
+            await self._emit_progress()
+            await asyncio.sleep(min(1.0, remaining))
+        self.progress = base_progress
+        await self._emit_progress()
+        logger.info("Steam 限流等待结束，重新查询: %s", market_hash_name)
+
+    async def _price_item(self, item: dict[str, Any], cfg: Config, scan_id: int) -> bool:
+        price = await self._get_steam_price(item, cfg)
         if price is None or not price.success or price.lowest <= 0:
             logger.info("Steam 无有效报价: %s", item["market_hash_name"])
             return False
@@ -537,16 +584,7 @@ class Scanner:
     ) -> bool:
         success = False
         if item.get("buff_price") is not None:
-            price = await steam_svc.get_price(
-                self.steam_session,
-                item["market_hash_name"],
-                appid=cfg.steam_appid,
-                currency=cfg.currency,
-                delay_sec=cfg.steam_delay_sec,
-                reference_usd=item.get("steam_reference_usd"),
-                reference_cny=item.get("steam_reference_cny"),
-                allow_reference_fallback=cfg.steam_buff_fallback,
-            )
+            price = await self._get_steam_price(item, cfg)
             if price is not None and price.success and price.lowest > 0:
                 net = steam_svc.steam_net(
                     price.lowest,

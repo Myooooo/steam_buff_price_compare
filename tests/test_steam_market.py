@@ -106,7 +106,7 @@ def test_search_requires_exact_name_and_falls_back_to_reference():
 
 def test_reference_fallback_can_be_disabled():
     async def scenario():
-        session = FakeSession([FakeResponse(429, None)])
+        session = FakeSession([FakeResponse(404, None)])
         result = await steam.get_price(
             session,
             "No Fallback",
@@ -119,7 +119,23 @@ def test_reference_fallback_can_be_disabled():
     asyncio.run(scenario())
 
 
-def test_429_enters_cooldown_and_does_not_retry_each_item():
+def test_429_wait_mode_reports_retry_delay():
+    async def scenario():
+        session = FakeSession([FakeResponse(429, None, {"Retry-After": "90"})])
+        with pytest.raises(steam.SteamRateLimitedError) as caught:
+            await steam.get_price(
+                session,
+                "Wait Item",
+                delay_sec=0,
+                reference_cny=100.0,
+            )
+        assert caught.value.retry_after_sec == 90
+        assert len(session.calls) == 1
+
+    asyncio.run(scenario())
+
+
+def test_429_fallback_mode_enters_cooldown_and_skips_following_requests():
     async def scenario():
         session = FakeSession([FakeResponse(429, None)])
         first = await steam.get_price(
@@ -127,12 +143,15 @@ def test_429_enters_cooldown_and_does_not_retry_each_item():
             "First Item",
             delay_sec=0,
             reference_cny=100.0,
+            allow_reference_fallback=False,
+            rate_limit_mode="buff_fallback",
         )
         second = await steam.get_price(
             session,
             "Second Item",
             delay_sec=0,
             reference_cny=200.0,
+            rate_limit_mode="buff_fallback",
         )
 
         assert first is not None and first.lowest == 100.0

@@ -138,7 +138,7 @@
               <th class="rank-col">#</th>
               <th>饰品 / BUFF 商品</th>
               <th>状态</th>
-              <th class="num" title="折价 60% + 流动性 40%（买卖价差 24% + 挂牌深度 16%）">评分</th>
+              <th class="num" title="折价质量 55% × 流动性质量 45%；低流动性无法被高折价完全抵消">评分</th>
               <th class="num">BUFF 价</th>
               <th class="num optional-col">Steam 最低</th>
               <th class="num optional-col">到手余额</th>
@@ -235,9 +235,10 @@
             <label>Steam 费率 %<input type="number" id="cfg-fee-steam" min="0" max="50" step="0.1"></label>
             <label>游戏费率 %<input type="number" id="cfg-fee-game" min="0" max="50" step="0.1"></label>
             <label>取整<select id="cfg-fee-round"><option value="cent">向上到分</option><option value="yuan">向上到元</option></select></label>
+            <label>Steam 429 处理<select id="cfg-steam-rate-limit-mode"><option value="wait_retry">暂停至少 60 秒后重试</option><option value="buff_fallback">自动使用 BUFF 参考价</option></select></label>
             <label class="check-line"><input type="checkbox" id="cfg-steam-fallback">Steam 直查失败时使用 BUFF 同步价</label>
           </div>
-          <p class="field-help">Steam 社区市场搜索是主数据源；BUFF 同步价仅在限流、无精确结果或网络失败时兜底，兜底记录不包含 Steam 在售数量。</p>
+          <p class="field-help">默认遇到 429 会暂停整个扫描、显示倒计时并重试当前商品；也可选择在冷却期直接使用 BUFF 参考价。普通直查失败的兜底由下方开关控制。</p>
         </fieldset>
         <div class="modal-actions">
           <button type="submit" class="btn btn-accent">保存设置</button>
@@ -247,6 +248,7 @@
     </div>
   </div>
 
+  <div id="score-tooltip" class="score-tooltip" role="tooltip" aria-hidden="true"></div>
   <script src="/js/app.js"></script>
 </body>
 </html>

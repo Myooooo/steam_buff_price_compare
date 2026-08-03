@@ -11,6 +11,7 @@ import pytest
 
 from backend import db
 from backend.config import Config
+from backend.services import steam as steam_svc
 from backend.services.buff import LoginRequiredError
 from backend.services.scanner import Scanner
 
@@ -207,6 +208,61 @@ def test_keyword_scan_fetches_every_page_and_deduplicates():
         conn.close()
 
     asyncio.run(scenario())
+
+
+def test_keyword_scan_waits_and_retries_same_item_after_steam_429(monkeypatch, caplog):
+    monkeypatch.setattr(steam_svc, "RATE_LIMIT_COOLDOWN_SEC", 0.02)
+    caplog.set_level(logging.INFO)
+
+    class RateLimitedOnceSteam(FakeSteam):
+        def __init__(self, prices):
+            super().__init__(prices)
+            self.calls = 0
+
+        async def get(self, url, params=None, timeout=15):
+            self.calls += 1
+            if self.calls == 1:
+                class Limited:
+                    status_code = 429
+                    headers = {}
+
+                return Limited()
+            return await super().get(url, params=params, timeout=timeout)
+
+    async def scenario():
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
+        db.init_db(conn)
+        steam = RateLimitedOnceSteam({
+            "AK-47 | Redline": {"success": True, "lowest_price": "¥ 289.00", "volume": "5"},
+        })
+        waiting_progress = []
+
+        async def on_update(event, payload):
+            progress = payload.get("progress", {})
+            if event == "scan_progress" and progress.get("phase") == "steam_rate_limit_wait":
+                waiting_progress.append(dict(progress))
+
+        scanner = Scanner(
+            FakeBuff({"ak": [make_item("AK-47 | Redline", 200.0)]}),
+            steam,
+            conn,
+            asyncio.Lock(),
+            lambda: make_cfg(keywords=["ak"], steam_rate_limit_mode="wait_retry"),
+            on_update,
+        )
+        await scanner.request_scan("keyword")
+        await wait_idle(scanner)
+
+        assert scanner.last_status == "ok"
+        assert steam.calls == 2
+        assert waiting_progress
+        assert waiting_progress[0]["rate_limit_wait_remaining"] == 1
+        assert db.get_item(conn, "AK-47 | Redline")["steam_price_source"] == "steam_search"
+        conn.close()
+
+    asyncio.run(scenario())
+    assert "扫描暂停" in caplog.text
+    assert "重新查询" in caplog.text
 
 
 def test_keyword_pull_caches_image_even_without_steam_price():

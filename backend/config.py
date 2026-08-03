@@ -69,6 +69,8 @@ class Config:
     request_delay_sec: float = 1.0  # Buff 每个搜索请求之间
     steam_delay_sec: float = 0.5  # Steam 每个价格请求之间
     steam_buff_fallback: bool = True  # Steam 直查失败时使用 BUFF 同步的 Steam CNY 参考价
+    # wait_retry: 429 后暂停至少 60 秒并重试当前商品；buff_fallback: 冷却期直接使用参考价
+    steam_rate_limit_mode: str = "wait_retry"
 
     # 数据保留
     history_keep_days: int = 30
@@ -83,6 +85,8 @@ class Config:
         if isinstance(self.deep_scan, dict):
             known = DeepScanConfig.__dataclass_fields__
             self.deep_scan = DeepScanConfig(**{k: v for k, v in self.deep_scan.items() if k in known})
+        if self.steam_rate_limit_mode not in {"wait_retry", "buff_fallback"}:
+            self.steam_rate_limit_mode = "wait_retry"
 
     @property
     def session_path(self) -> Path:

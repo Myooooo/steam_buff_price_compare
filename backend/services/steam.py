@@ -41,6 +41,17 @@ class SteamPrice:
     source: str = "steam_search"
 
 
+class SteamRateLimitedError(RuntimeError):
+    """Steam 429 限流；扫描器负责展示倒计时并在冷却后重试。"""
+
+    def __init__(self, market_hash_name: str, retry_after_sec: float):
+        self.market_hash_name = market_hash_name
+        self.retry_after_sec = max(0.0, retry_after_sec)
+        super().__init__(
+            f"Steam 价格查询受限，{self.retry_after_sec:.0f} 秒后重试: {market_hash_name}"
+        )
+
+
 def parse_price_str(s: Optional[str]) -> Optional[float]:
     """把 Steam 价格字符串解析成 float；None/空/解析失败返回 None。"""
     if not s:
@@ -178,23 +189,30 @@ async def get_price(
     reference_usd: Optional[float] = None,
     reference_cny: Optional[float] = None,
     allow_reference_fallback: bool = True,
+    rate_limit_mode: str = "wait_retry",
 ) -> Optional[SteamPrice]:
     """获取某饰品的 Steam 市场价和在售数；失败时可返回 BUFF 参考价。
 
     ``market/search/render`` 当前对匿名请求可能忽略 ``currency=23`` 并返回 USD。
     BUFF 商品数据同时包含同一 Steam 参考价的 USD/CNY 值，可据此得到 Steam 使用的
-    换算比例；若搜索接口限流或临时失败，则直接使用其 CNY 参考价，避免重试风暴。
+    换算比例。429 默认抛出 ``SteamRateLimitedError``，由扫描器暂停并重试；
+    ``rate_limit_mode=buff_fallback`` 时才在冷却期直接使用 BUFF 参考价。
     """
     fallback = _reference_price(reference_cny) if allow_reference_fallback else None
+    rate_limit_fallback = _reference_price(reference_cny)
+    wait_on_rate_limit = rate_limit_mode != "buff_fallback"
     now = time.monotonic()
     cooldown_until = float(getattr(session, "_steam_market_rate_limited_until", 0.0) or 0.0)
     if cooldown_until > now:
+        remaining = cooldown_until - now
+        if wait_on_rate_limit:
+            raise SteamRateLimitedError(market_hash_name, remaining)
         logger.info(
             "Steam 搜索接口冷却中，使用同步参考价: %s（剩余 %.0f 秒）",
             market_hash_name,
-            cooldown_until - now,
+            remaining,
         )
-        return fallback
+        return rate_limit_fallback
 
     if reference_usd and reference_usd >= 1 and reference_cny and reference_cny > 0:
         setattr(session, "_steam_usd_to_cny", reference_cny / reference_usd)
@@ -221,12 +239,19 @@ async def get_price(
                 retry_after = _retry_after_seconds(resp.headers)
                 cooldown = max(RATE_LIMIT_COOLDOWN_SEC, float(retry_after))
                 setattr(session, "_steam_market_rate_limited_until", time.monotonic() + cooldown)
+                if wait_on_rate_limit:
+                    logger.warning(
+                        "Steam 搜索接口 HTTP 429: %s，暂停扫描 %.0f 秒后重试",
+                        market_hash_name,
+                        cooldown,
+                    )
+                    raise SteamRateLimitedError(market_hash_name, cooldown)
                 logger.warning(
                     "Steam 搜索接口 HTTP 429: %s，暂停直查 %.0f 秒并使用同步参考价",
                     market_hash_name,
                     cooldown,
                 )
-                return fallback
+                return rate_limit_fallback
             if resp.status_code in (500, 502, 503, 504):
                 retry_after = _retry_after_seconds(resp.headers)
                 wait_seconds = max(2 ** (attempt + 1), retry_after)
@@ -262,6 +287,8 @@ async def get_price(
                 sell_listings=_listing_count(result),
                 success=True,
             )
+        except SteamRateLimitedError:
+            raise
         except Exception as e:  # noqa: BLE001 - curl_cffi 异常类型繁杂，统一退避
             logger.debug("Steam 价格请求异常(%s): %s", market_hash_name, e)
             if attempt + 1 < max_retries:

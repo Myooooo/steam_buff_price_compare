@@ -35,9 +35,16 @@ def test_score_breakdown_explains_liquidity_source_and_points():
     assert fallback["depth_source"] == "buff"
     assert direct["depth_source"] == "buff_steam"
     assert fallback["score"] == opportunity_score(0.80, 100, None, 0.05)
-    assert fallback["liquidity_points"] == round(
-        fallback["spread_points"] + fallback["depth_points"], 1
-    )
+    assert 0 < fallback["discount_quality"] <= 100
+    assert 0 < fallback["liquidity_quality"] <= 100
+
+
+def test_low_listing_depth_cannot_be_fully_offset_by_discount():
+    thin = opportunity_score(0.65, 1, None, 0.02)
+    deep = opportunity_score(0.65, 1000, None, 0.02)
+    assert thin is not None and deep is not None
+    assert thin < 75
+    assert deep == 100
 
 
 def test_score_requires_discount():

@@ -123,6 +123,9 @@ function renderScan() {
 
 function currentProgressText(scan) {
   const progress = scan.progress || {};
+  if (progress.phase === "steam_rate_limit_wait") {
+    return `Steam 429 限流 · ${progress.rate_limit_wait_remaining || 0}s 后重试 · ${progress.current_item || "当前商品"}`;
+  }
   if (scan.current_mode === "deepscan") {
     const deep = scan.deep_scan || progress;
     if (deep.phase === "indexing") return `建立索引 · 第 ${Math.max(0, (deep.next_page || 1) - 1)} / ${deep.total_pages || "?"} 页`;
@@ -149,10 +152,12 @@ function renderDeepProgress() {
   const button = $("btn-deepscan");
   const active = !!(deep && deep.active);
   const queued = !!(deep && deep.queued);
+  const rateLimitWaiting = progress.phase === "steam_rate_limit_wait";
   const keywordPricing = scan.state === "scanning" && scan.current_mode === "keyword" && progress.phase === "pricing";
 
   monitor.classList.toggle("steam-pricing", keywordPricing);
-  label.textContent = keywordPricing ? "Steam 价格查询进度" : "深度扫描进度";
+  monitor.classList.toggle("rate-limit-wait", rateLimitWaiting);
+  label.textContent = rateLimitWaiting ? "Steam 限流等待" : (keywordPricing ? "Steam 价格查询进度" : "深度扫描进度");
 
   if (deep) {
     button.classList.toggle("is-stop", active);
@@ -162,6 +167,21 @@ function renderDeepProgress() {
     button.querySelector("strong").textContent = "深度扫描";
     button.querySelector("small").textContent = "全市场索引 · 断点续传";
     button.classList.remove("is-stop");
+  }
+
+  if (rateLimitWaiting) {
+    const isDeep = scan.current_mode === "deepscan";
+    const total = Number(isDeep ? progress.indexed_count : progress.total) || 0;
+    const completed = Number(isDeep
+      ? (progress.priced_count || 0) + (progress.failed_count || 0)
+      : progress.completed) || 0;
+    const percent = total ? (completed / total) * 100 : 0;
+    const remaining = Number(progress.rate_limit_wait_remaining || 0);
+    phase.textContent = `暂停 · ${remaining}s`;
+    fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    percentEl.textContent = `${completed} / ${total || "?"}`;
+    detail.textContent = `Steam 返回 429，暂停扫描并重试 · 当前 ${progress.current_item || "—"}`;
+    return;
   }
 
   if (keywordPricing) {
@@ -276,16 +296,40 @@ function scoreTooltip(item) {
   const steamDepth = item.steam_sell_num == null ? "—" : numberFmt.format(item.steam_sell_num);
   return [
     `总分 ${detail.score.toFixed(1)} / 100`,
-    `折价 ${detail.discount_points.toFixed(1)} / 60 · ${discount}`,
-    `流动性 ${detail.liquidity_points.toFixed(1)} / 40`,
-    `买卖价差 ${detail.spread_points.toFixed(1)} / 24 · ${spread}`,
-    `挂牌深度 ${detail.depth_points.toFixed(1)} / 16 · BUFF ${buffDepth} · Steam ${steamDepth}`,
+    `折价质量 ${detail.discount_quality.toFixed(1)} / 100 · 权重 55% · ${discount}`,
+    `流动性质量 ${detail.liquidity_quality.toFixed(1)} / 100 · 权重 45%`,
+    `挂牌深度 ${detail.depth_quality.toFixed(1)} / 100 · 流动性内占 65% · BUFF ${buffDepth} · Steam ${steamDepth}`,
+    `买卖价差 ${detail.spread_quality.toFixed(1)} / 100 · 流动性内占 35% · ${spread}`,
     `深度合成：${depthRules[detail.depth_source] || depthRules.none}`,
+    "总分 = 100 × 折价质量^0.55 × 流动性质量^0.45",
   ].join("\n");
+}
+
+function showScoreTooltip(anchor) {
+  const tooltip = $("score-tooltip");
+  tooltip.textContent = anchor.dataset.scoreHelp || "";
+  tooltip.classList.add("visible");
+  tooltip.setAttribute("aria-hidden", "false");
+  const anchorRect = anchor.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const halfWidth = tooltipRect.width / 2;
+  const left = Math.max(halfWidth + 12, Math.min(window.innerWidth - halfWidth - 12, anchorRect.left + anchorRect.width / 2));
+  let top = anchorRect.bottom + 9;
+  if (top + tooltipRect.height > window.innerHeight - 12) top = anchorRect.top - tooltipRect.height - 9;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${Math.max(12, top)}px`;
+}
+
+function hideScoreTooltip() {
+  const tooltip = $("score-tooltip");
+  if (!tooltip) return;
+  tooltip.classList.remove("visible");
+  tooltip.setAttribute("aria-hidden", "true");
 }
 
 function renderTable() {
   const tbody = $("rank-body");
+  hideScoreTooltip();
   if (state.sparkObserver) state.sparkObserver.disconnect();
   tbody.innerHTML = "";
   $("count-hint").textContent = `${numberFmt.format(state.list.count)} 条结果`;
@@ -324,7 +368,7 @@ function renderTable() {
         </a>
       </td>
       <td><span class="freshness-pill ${isLatest ? "latest" : "cached"}"><i></i>${isLatest ? "最新数据" : "缓存数据"}</span></td>
-      <td class="num"><span class="score-badge ${scoreTone}" tabindex="0" title="${esc(scoreHelp)}" aria-label="${esc(scoreHelp)}">${item.score == null ? "—" : item.score.toFixed(1)}${item.score == null ? "" : "<small>分</small>"}</span></td>
+      <td class="num"><span class="score-badge ${scoreTone}" tabindex="0" data-score-help="${esc(scoreHelp)}" aria-label="${esc(scoreHelp)}" aria-describedby="score-tooltip">${item.score == null ? "—" : item.score.toFixed(1)}${item.score == null ? "" : "<small>分</small>"}</span></td>
       <td class="num"><span class="price-main">${fmtCurrency(item.buff_price)}</span></td>
       <td class="num optional-col"><span class="steam-price-cell">${fmtCurrency(item.steam_price)}${priceSource ? `<small class="price-source ${item.steam_price_source === "steam_search" ? "direct" : "fallback"}">${priceSource}</small>` : ""}</span></td>
       <td class="num optional-col">${fmtCurrency(item.steam_net)}</td>
@@ -339,7 +383,12 @@ function renderTable() {
     row.addEventListener("keydown", (event) => { if (event.key === "Enter") openItem(); });
     tbody.appendChild(row);
     const sparkCell = row.querySelector(".spark-cell");
+    const scoreBadge = row.querySelector(".score-badge");
     const image = row.querySelector(".item-image img");
+    scoreBadge.addEventListener("mouseenter", () => showScoreTooltip(scoreBadge));
+    scoreBadge.addEventListener("focus", () => showScoreTooltip(scoreBadge));
+    scoreBadge.addEventListener("mouseleave", hideScoreTooltip);
+    scoreBadge.addEventListener("blur", hideScoreTooltip);
     if (image) image.addEventListener("error", () => image.remove(), { once: true });
     sparkCell.dataset.name = item.market_hash_name;
     if (state.sparkObserver) state.sparkObserver.observe(sparkCell);
@@ -478,6 +527,7 @@ function openSettings() {
   $("cfg-fee-steam").value = config.steam_fee_steam_pct ?? 5;
   $("cfg-fee-game").value = config.steam_fee_game_pct ?? 10;
   $("cfg-fee-round").value = config.fee_round || "cent";
+  $("cfg-steam-rate-limit-mode").value = config.steam_rate_limit_mode || "wait_retry";
   $("cfg-steam-fallback").checked = config.steam_buff_fallback !== false;
   openModal("settings-modal");
 }
@@ -496,6 +546,7 @@ async function saveSettings(event) {
     steam_fee_steam_pct: parseFloat($("cfg-fee-steam").value) || 5,
     steam_fee_game_pct: parseFloat($("cfg-fee-game").value) || 10,
     fee_round: $("cfg-fee-round").value,
+    steam_rate_limit_mode: $("cfg-steam-rate-limit-mode").value,
     steam_buff_fallback: $("cfg-steam-fallback").checked,
   };
   try {
@@ -589,6 +640,8 @@ document.addEventListener("DOMContentLoaded", () => {
       $("filter-keyword").focus();
     }
   });
+  window.addEventListener("scroll", hideScoreTooltip, true);
+  window.addEventListener("resize", hideScoreTooltip);
 
   connectWS();
   api("/api/status").then(applySnapshot).catch(() => {});

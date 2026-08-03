@@ -1,8 +1,8 @@
 """可解释的跨市场机会评分。
 
-评分范围 0–100：折价 60 分，流动性 40 分。流动性由买卖价差
-（24 分）与挂牌深度（16 分）组成；有 Steam 数量时以 25% 权重
-融入挂牌深度，没有时只使用 BUFF 数量，不因数据缺失额外扣分。
+评分范围 0–100，由折价质量与流动性质量按加权几何平均合成，避免
+极低流动性被高折价完全抵消。流动性以挂牌深度为主、买卖价差为辅；
+有 Steam 数量时以 25% 权重融入深度，没有时只使用 BUFF 数量。
 """
 from __future__ import annotations
 
@@ -10,9 +10,10 @@ import math
 from typing import Any, Optional
 
 
-DISCOUNT_POINTS = 60.0
-SPREAD_POINTS = 24.0
-DEPTH_POINTS = 16.0
+DISCOUNT_WEIGHT = 0.55
+LIQUIDITY_WEIGHT = 0.45
+DEPTH_SHARE = 0.65
+SPREAD_SHARE = 0.35
 LISTING_CAP = 1000
 BUFF_DEPTH_SHARE = 0.75
 STEAM_DEPTH_SHARE = 0.25
@@ -63,17 +64,17 @@ def opportunity_score_breakdown(
         depth_quality = 0.0
         depth_source = "none"
 
-    discount_points = DISCOUNT_POINTS * discount_quality
-    spread_points = SPREAD_POINTS * spread_quality
-    depth_points = DEPTH_POINTS * depth_quality
-    liquidity_points = spread_points + depth_points
-    score = discount_points + liquidity_points
+    liquidity_quality = DEPTH_SHARE * depth_quality + SPREAD_SHARE * spread_quality
+    score = 100.0 * (
+        discount_quality ** DISCOUNT_WEIGHT
+        * liquidity_quality ** LIQUIDITY_WEIGHT
+    )
     return {
         "score": round(score, 1),
-        "discount_points": round(discount_points, 1),
-        "liquidity_points": round(liquidity_points, 1),
-        "spread_points": round(spread_points, 1),
-        "depth_points": round(depth_points, 1),
+        "discount_quality": round(discount_quality * 100, 1),
+        "liquidity_quality": round(liquidity_quality * 100, 1),
+        "spread_quality": round(spread_quality * 100, 1),
+        "depth_quality": round(depth_quality * 100, 1),
         "depth_source": depth_source,
     }
 

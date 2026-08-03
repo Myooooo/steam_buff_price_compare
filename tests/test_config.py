@@ -51,6 +51,8 @@ def test_config_input_validation():
         ConfigIn(keywords=[])
     with pytest.raises(ValidationError):
         ConfigIn(deep_scan={"interval_minutes": 0})
+    with pytest.raises(ValidationError):
+        ConfigIn(steam_rate_limit_mode="invalid")
 
 
 def test_disabling_auto_scan_stops_scheduler():

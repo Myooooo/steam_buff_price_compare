@@ -29,6 +29,7 @@ class ConfigIn(BaseModel):
     request_delay_sec: Optional[float] = Field(None, ge=0)
     steam_delay_sec: Optional[float] = Field(None, ge=0)
     steam_buff_fallback: Optional[bool] = None
+    steam_rate_limit_mode: Optional[Literal["wait_retry", "buff_fallback"]] = None
     history_keep_days: Optional[int] = Field(None, ge=0)
     user_agent: Optional[str] = None
     log_level: Optional[Literal["DEBUG", "INFO", "WARNING", "ERROR"]] = None

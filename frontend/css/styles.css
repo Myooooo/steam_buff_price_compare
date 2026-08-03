@@ -202,6 +202,11 @@ a { color: inherit; text-decoration: none; }
 .deep-monitor.steam-pricing .meter-track { border-color: rgba(92,226,216,.24); }
 .deep-monitor.steam-pricing .meter-track span { background: linear-gradient(90deg, var(--cyan-deep), var(--cyan)); box-shadow: 0 0 12px rgba(92,226,216,.5); }
 .deep-monitor.steam-pricing .meter-meta strong { color: var(--cyan); }
+.deep-monitor.rate-limit-wait { background: rgba(52,25,13,.94); }
+.deep-monitor.rate-limit-wait .phase-pill { color: #ffd18b; background: rgba(255,151,72,.13); animation: softPulse 1.2s ease-in-out infinite; }
+.deep-monitor.rate-limit-wait .meter-track { border-color: rgba(255,151,72,.35); }
+.deep-monitor.rate-limit-wait .meter-track span { background: linear-gradient(90deg, #a94e25, #ff9748); box-shadow: 0 0 12px rgba(255,151,72,.45); }
+.deep-monitor.rate-limit-wait .meter-meta strong { color: #ffb66f; }
 .notice-line { grid-column: 1 / -1; min-height: 0; color: var(--amber); background: rgba(5,13,16,.82); font-size: 10px; text-align: center; }
 .notice-line:not(:empty) { min-height: 28px; padding: 7px 12px; }
 
@@ -291,6 +296,8 @@ tr:hover .jump { transform: translate(2px, -2px); color: var(--cyan); }
 .score-badge.high { color: var(--green); text-shadow: 0 0 14px rgba(97,226,142,.24); }
 .score-badge.medium { color: var(--amber); }
 .score-badge.low { color: #7b9094; }
+.score-tooltip { position: fixed; z-index: 1000; width: min(390px, calc(100vw - 24px)); padding: 11px 13px; transform: translateX(-50%) translateY(-3px); border: 1px solid rgba(92,226,216,.28); border-radius: 8px; opacity: 0; visibility: hidden; pointer-events: none; color: #dce9e8; background: rgba(5,15,18,.97); box-shadow: 0 14px 36px rgba(0,0,0,.48), 0 0 20px rgba(92,226,216,.08); font-size: 10px; line-height: 1.7; white-space: pre-line; transition: opacity .14s ease, transform .14s ease, visibility .14s; }
+.score-tooltip.visible { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
 .steam-price-cell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .price-source { padding: 1px 4px; border: 1px solid; border-radius: 3px; font-size: 7px; font-weight: 800; letter-spacing: .03em; }
 .price-source.direct { color: var(--cyan); border-color: rgba(92,226,216,.22); background: rgba(92,226,216,.06); }
