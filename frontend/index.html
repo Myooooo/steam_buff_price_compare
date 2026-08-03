@@ -3,135 +3,256 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Steam × Buff 倒余额折价对比</title>
+  <meta name="theme-color" content="#071014">
+  <title>Steam × BUFF 饰品雷达</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M24 4 42 14v20L24 44 6 34V14z' fill='%23071014' stroke='%235ce2d8' stroke-width='3'/%3E%3Cpath d='m15 27 6 6 13-17' fill='none' stroke='%235ce2d8' stroke-width='3'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+
   <header class="topbar">
-    <div class="brand">
-      <h1>倒余额折价对比</h1>
-      <span class="subtitle">Buff 买入 → Steam 卖出换余额</span>
-    </div>
+    <a class="brand" href="/" aria-label="返回首页">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" role="img">
+          <path d="M24 4 42 14v20L24 44 6 34V14L24 4Z"></path>
+          <path d="m15 27 6 6 13-17"></path>
+        </svg>
+      </span>
+      <span>
+        <strong>SKIN<span>RADAR</span></strong>
+        <small>STEAM × BUFF VALUE INTELLIGENCE</small>
+      </span>
+    </a>
     <div class="actions">
-      <span id="login-badge" class="badge badge-off">未登录</span>
-      <button id="btn-login" class="btn btn-primary">扫码登录</button>
-      <button id="btn-logout" class="btn btn-ghost" style="display:none">登出</button>
-      <button id="btn-scan" class="btn btn-primary">立即扫描</button>
-      <button id="btn-deepscan" class="btn btn-ghost">深度扫描</button>
-      <button id="btn-settings" class="btn btn-ghost">设置</button>
+      <span id="connection-badge" class="signal-badge offline"><i></i>连接中</span>
+      <span id="login-badge" class="badge badge-off">BUFF 未登录</span>
+      <button id="btn-login" class="btn btn-accent"><span class="btn-icon">⌁</span>扫码登录</button>
+      <button id="btn-logout" class="btn btn-quiet" style="display:none">登出</button>
+      <button id="btn-settings" class="btn btn-quiet" aria-label="打开设置">设置</button>
     </div>
   </header>
 
-  <section class="status-strip">
-    <div class="stat"><label>扫描状态</label><span id="scan-state">—</span></div>
-    <div class="stat"><label>上次扫描</label><span id="scan-last">—</span></div>
-    <div class="stat"><label>下次扫描</label><span id="scan-next">—</span></div>
-    <div class="stat"><label>上次结果</label><span id="scan-result">—</span></div>
-    <div class="stat stat-msg" id="scan-msg"></div>
-  </section>
+  <main class="shell">
+    <section class="command-grid enter">
+      <article class="command-card overview-card">
+        <div class="eyebrow"><span>MARKET COMMAND</span><i></i></div>
+        <div class="overview-head">
+          <div>
+            <p class="kicker">折价机会雷达</p>
+            <h1>把市场噪声，压缩成可行动的价格信号。</h1>
+            <p class="lede">完整遍历关键词结果，持续维护 BUFF 全市场索引。每一行都标明是本轮新数据还是历史缓存。</p>
+          </div>
+          <div class="radar-orb" aria-hidden="true"><span></span><i></i></div>
+        </div>
+        <div class="scan-actions">
+          <button id="btn-scan" class="scan-cta scan-cta-primary">
+            <span class="scan-cta-icon">↻</span>
+            <span><strong>立即扫描</strong><small>关键词 · 全部搜索分页</small></span>
+            <em>QUICK</em>
+          </button>
+          <button id="btn-deepscan" class="scan-cta scan-cta-deep">
+            <span class="scan-cta-icon">⌗</span>
+            <span><strong>深度扫描</strong><small>全市场索引 · 断点续传</small></span>
+            <em>DEEP</em>
+          </button>
+        </div>
+      </article>
 
-  <section class="filter-bar">
-    <label class="checkbox">
-      <input type="checkbox" id="only-profitable" checked>
-      只看可赚（折价 ≤ 1.0）
-    </label>
-    <label class="select">
-      来源
-      <select id="filter-source">
-        <option value="">全部</option>
-        <option value="keyword">关键词</option>
-        <option value="deepscan">深度扫描</option>
-      </select>
-    </label>
-    <span class="hint" id="count-hint"></span>
-  </section>
+      <aside class="command-card telemetry-card">
+        <div class="panel-heading">
+          <div><span class="panel-code">SYS / 01</span><h2>扫描遥测</h2></div>
+          <span id="scan-state" class="state-pill">空闲</span>
+        </div>
+        <div class="telemetry-grid">
+          <div><span>上次扫描</span><strong id="scan-last">—</strong></div>
+          <div><span>下次扫描</span><strong id="scan-next">—</strong></div>
+          <div class="telemetry-wide"><span>任务进度</span><strong id="scan-result">等待扫描指令</strong></div>
+        </div>
+        <div id="scan-msg" class="notice-line" role="status" aria-live="polite"></div>
+      </aside>
+    </section>
 
-  <main class="table-wrap">
-    <table id="rank-table">
-      <thead>
-        <tr>
-          <th class="num">#</th>
-          <th>饰品</th>
-          <th class="num">Buff 价 ¥</th>
-          <th class="num">Steam 最低 ¥</th>
-          <th class="num">到手余额 ¥</th>
-          <th class="num">折价</th>
-          <th class="num">Steam 量</th>
-          <th class="num">Buff 在售</th>
-          <th class="spark">走势</th>
-          <th>更新</th>
-        </tr>
-      </thead>
-      <tbody id="rank-body"></tbody>
-    </table>
-    <div id="empty-hint" class="empty-hint" style="display:none">
-      暂无数据。请先扫码登录 Buff，然后点「立即扫描」或等待自动扫描。
-    </div>
+    <section id="deep-panel" class="deep-panel enter">
+      <div class="deep-copy">
+        <span class="warning-icon">!</span>
+        <div>
+          <div class="deep-title-row"><h2>全市场深度索引</h2><span id="deep-phase" class="phase-pill">尚未开始</span></div>
+          <p>先建立 BUFF 全量饰品索引，再逐件查询 Steam 价格。任务可能持续数小时至数天，可随时暂停，重启后从 SQLite 检查点继续。</p>
+        </div>
+      </div>
+      <div class="deep-meter">
+        <div class="meter-track"><span id="deep-progress-fill"></span></div>
+        <div class="meter-meta"><strong id="deep-progress-text">0%</strong><span id="deep-progress-detail">等待建立索引</span></div>
+      </div>
+    </section>
+
+    <section id="market-panel" class="market-panel enter">
+      <div class="market-head">
+        <div>
+          <span class="panel-code">LIVE OPPORTUNITIES / 02</span>
+          <h2>饰品机会列表</h2>
+        </div>
+        <div class="legend">
+          <span class="freshness-pill latest"><i></i>最新数据</span>
+          <span class="freshness-pill cached"><i></i>缓存数据</span>
+          <span id="count-hint" class="result-count">0 条结果</span>
+        </div>
+      </div>
+
+      <div class="filter-console">
+        <label class="search-field">
+          <span aria-hidden="true">⌕</span>
+          <input id="filter-keyword" type="search" placeholder="搜索饰品名称 / Market Hash Name" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+        <label class="filter-field"><span>枪械</span><select id="filter-weapon"><option value="">全部枪械</option></select></label>
+        <label class="filter-field"><span>类别</span><select id="filter-type"><option value="">全部类别</option></select></label>
+        <label class="filter-field"><span>磨损</span><select id="filter-exterior"><option value="">全部磨损</option></select></label>
+        <label class="filter-field"><span>数据状态</span>
+          <select id="filter-freshness">
+            <option value="">最新 + 缓存</option>
+            <option value="latest">仅最新数据</option>
+            <option value="cached">仅缓存数据</option>
+          </select>
+        </label>
+        <label class="filter-field"><span>来源</span>
+          <select id="filter-source">
+            <option value="">全部来源</option>
+            <option value="keyword">关键词</option>
+            <option value="deepscan">深度索引</option>
+          </select>
+        </label>
+        <div class="price-filter">
+          <span>BUFF 价格</span>
+          <div><input id="filter-price-min" type="number" min="0" step="1" placeholder="最低"><i>—</i><input id="filter-price-max" type="number" min="0" step="1" placeholder="最高"></div>
+        </div>
+        <label class="filter-field sort-field"><span>排序</span>
+          <select id="filter-sort">
+            <option value="discount:asc">折价 · 从低到高</option>
+            <option value="discount:desc">折价 · 从高到低</option>
+            <option value="buff_price:asc">BUFF 价 · 从低到高</option>
+            <option value="buff_price:desc">BUFF 价 · 从高到低</option>
+            <option value="steam_price:desc">Steam 价 · 从高到低</option>
+            <option value="steam_volume:desc">Steam 成交量 · 从高到低</option>
+            <option value="buff_sell_num:desc">BUFF 在售 · 从高到低</option>
+            <option value="updated_at:desc">更新时间 · 最新优先</option>
+            <option value="name:asc">名称 · A-Z</option>
+          </select>
+        </label>
+        <label class="profit-toggle"><input type="checkbox" id="only-profitable" checked><span><i></i></span>只看折价 ≤ 1.0</label>
+        <button id="btn-filter-reset" class="btn btn-quiet filter-reset">重置筛选</button>
+      </div>
+
+      <div id="table-loading" class="table-loading" aria-hidden="true"><i></i><span>正在同步市场数据…</span></div>
+      <div class="table-wrap">
+        <table id="rank-table">
+          <thead>
+            <tr>
+              <th class="rank-col">#</th>
+              <th>饰品 / BUFF 商品</th>
+              <th>状态</th>
+              <th class="num">BUFF 价</th>
+              <th class="num optional-col">Steam 最低</th>
+              <th class="num optional-col">到手余额</th>
+              <th class="num">折价</th>
+              <th class="num volume-col">Steam 量</th>
+              <th class="num volume-col">BUFF 在售</th>
+              <th class="spark-col">30 日走势</th>
+              <th>更新</th>
+            </tr>
+          </thead>
+          <tbody id="rank-body"></tbody>
+        </table>
+        <div id="empty-hint" class="empty-hint" style="display:none">
+          <span class="empty-radar">⌁</span>
+          <h3>当前条件下没有价格信号</h3>
+          <p>调整筛选条件，或登录 BUFF 后启动一次完整关键词扫描。</p>
+        </div>
+      </div>
+      <div class="pagination">
+        <button id="btn-page-prev" class="btn btn-quiet">← 上一页</button>
+        <span id="page-hint">第 1 / 1 页</span>
+        <button id="btn-page-next" class="btn btn-quiet">下一页 →</button>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
-    <span>⚠️ 提醒：Buff 提货到 Steam 后饰品有 7 天不可上架期；2025 起存在 Trade Protection（对方可撤回交易一次）。</span>
+    <span><i></i>LOCAL-FIRST / 会话与索引仅保存在本机</span>
+    <p>市场报价仅供估算。提货、冷却期、Trade Protection、流动性与价格波动可能影响最终结果。</p>
   </footer>
 
-  <!-- 登录弹窗 -->
   <div id="login-modal" class="modal-backdrop" style="display:none">
     <div class="modal">
-      <h2>扫码登录 Buff</h2>
-      <p class="muted">用 Buff / 网易账号 App 扫码，确认后自动获取登录会话。</p>
+      <button class="modal-x" data-close="login-modal" aria-label="关闭">×</button>
+      <span class="panel-code">SECURE SESSION</span>
+      <h2>扫码登录 BUFF</h2>
+      <p class="muted">用 BUFF App 扫码并在手机上确认。会话只写入本机数据目录。</p>
       <div id="qr-box" class="qr-box"></div>
       <div id="qr-status" class="qr-status">正在生成二维码…</div>
       <div class="modal-actions">
-        <button id="btn-qr-refresh" class="btn btn-ghost">刷新二维码</button>
-        <button id="btn-qr-cancel" class="btn btn-ghost">关闭</button>
+        <button id="btn-qr-refresh" class="btn btn-accent">刷新二维码</button>
+        <button id="btn-qr-cancel" class="btn btn-quiet">关闭</button>
       </div>
     </div>
   </div>
 
-  <!-- 设置弹窗 -->
+  <div id="deep-modal" class="modal-backdrop" style="display:none">
+    <div class="modal modal-warning">
+      <button class="modal-x" data-close="deep-modal" aria-label="关闭">×</button>
+      <span class="warning-icon large">!</span>
+      <span class="panel-code">LONG-RUN TASK</span>
+      <h2 id="deep-modal-title">启动全市场深度扫描？</h2>
+      <p id="deep-modal-copy" class="muted">这不是一次快速搜索。应用会索引 BUFF 全市场，再逐件查询 Steam 价格，可能持续数小时至数天。</p>
+      <ul class="warning-list">
+        <li>每个索引页和每件定价结果都会写入 SQLite 检查点</li>
+        <li>可以随时暂停；重启应用后再次点击即可续传</li>
+        <li>立即扫描会优先执行，完成后自动恢复深度任务</li>
+      </ul>
+      <div class="modal-actions">
+        <button id="btn-deep-confirm" class="btn btn-warning">确认并开始</button>
+        <button id="btn-deep-cancel" class="btn btn-quiet">暂不开始</button>
+      </div>
+    </div>
+  </div>
+
   <div id="settings-modal" class="modal-backdrop" style="display:none">
     <div class="modal modal-wide">
-      <h2>设置</h2>
+      <button class="modal-x" data-close="settings-modal" aria-label="关闭">×</button>
+      <span class="panel-code">SYSTEM CONFIG</span>
+      <h2>扫描与估算设置</h2>
       <form id="settings-form">
         <fieldset>
-          <legend>候选池</legend>
-          <div class="row">
-            <label>关键词（逗号分隔）<textarea id="cfg-keywords" rows="3" spellcheck="false"></textarea></label>
-            <label>每个关键词取前 N 条<input type="number" id="cfg-page-size" min="1" max="200"></label>
+          <legend>关键词扫描</legend>
+          <div class="form-grid">
+            <label class="form-wide">关键词（逗号或换行分隔）<textarea id="cfg-keywords" rows="3" spellcheck="false"></textarea></label>
+            <label>BUFF 每页请求量<input type="number" id="cfg-page-size" min="20" max="200"></label>
+            <label>自动扫描间隔（分钟）<input type="number" id="cfg-interval" min="1"></label>
+            <label class="check-line"><input type="checkbox" id="cfg-auto-scan">启动后自动扫描</label>
           </div>
-          <div class="row">
-            <label class="checkbox"><input type="checkbox" id="cfg-deep-enabled">启用价格区间深度扫描（低频）</label>
-            <label>最低价 ¥<input type="number" id="cfg-deep-min" min="0" step="1"></label>
-            <label>最高价 ¥<input type="number" id="cfg-deep-max" min="0" step="1"></label>
-            <label>最多页数<input type="number" id="cfg-deep-pages" min="1" max="100"></label>
-          </div>
+          <p class="field-help">立即扫描始终遍历每个关键词的全部分页；每页请求量只影响请求次数，不截断结果。</p>
         </fieldset>
-
-        <fieldset>
-          <legend>扫描</legend>
-          <div class="row">
-            <label>间隔（分钟）<input type="number" id="cfg-interval" min="1"></label>
-            <label class="checkbox"><input type="checkbox" id="cfg-auto-scan">启动后自动扫描</label>
+        <fieldset class="deep-fieldset">
+          <legend>全市场深度扫描</legend>
+          <div class="form-grid">
+            <label class="check-line"><input type="checkbox" id="cfg-deep-enabled">按计划自动续跑深度扫描</label>
+            <label>调度间隔（分钟）<input type="number" id="cfg-deep-interval" min="1"></label>
           </div>
+          <p class="field-help warning-text">深度扫描没有页数截断，会维护完整市场索引；进度保存在数据库中。</p>
         </fieldset>
-
         <fieldset>
-          <legend>Steam 手续费模型（CS2 现为 5% + 10%）</legend>
-          <div class="row">
+          <legend>Steam 到手估算</legend>
+          <div class="form-grid three">
             <label>Steam 费率 %<input type="number" id="cfg-fee-steam" min="0" max="50" step="0.1"></label>
             <label>游戏费率 %<input type="number" id="cfg-fee-game" min="0" max="50" step="0.1"></label>
-            <label>
-              取整
-              <select id="cfg-fee-round">
-                <option value="cent">到分（官方口径）</option>
-                <option value="yuan">到元</option>
-              </select>
-            </label>
+            <label>取整<select id="cfg-fee-round"><option value="cent">向上到分</option><option value="yuan">向上到元</option></select></label>
           </div>
         </fieldset>
-
         <div class="modal-actions">
-          <button type="submit" class="btn btn-primary">保存</button>
-          <button type="button" id="btn-settings-cancel" class="btn btn-ghost">取消</button>
+          <button type="submit" class="btn btn-accent">保存设置</button>
+          <button type="button" id="btn-settings-cancel" class="btn btn-quiet">取消</button>
         </div>
       </form>
     </div>

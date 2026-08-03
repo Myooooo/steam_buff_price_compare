@@ -19,15 +19,33 @@ class FakeBuff:
         self.items_by_kw = items_by_kw or {}
         self.fail = fail
         self.deep = deep or {"items": [], "total_page": 1}
+        self.search_calls = []
 
-    async def search_goods(self, keyword, game="csgo", page_size=20):
+    async def search_goods(self, keyword, game="csgo", page_num=1, page_size=20):
         if self.fail:
             raise LoginRequiredError("请先登录")
-        return self.items_by_kw.get(keyword, [])
+        self.search_calls.append((keyword, page_num))
+        pages = self.items_by_kw.get(keyword, [])
+        if pages and isinstance(pages[0], list):
+            items = pages[page_num - 1] if page_num <= len(pages) else []
+            total_page = len(pages)
+        else:
+            items = pages if page_num == 1 else []
+            total_page = 1
+        total_count = sum(map(len, pages)) if pages and isinstance(pages[0], list) else len(pages)
+        return {
+            "items": items,
+            "page_num": page_num,
+            "total_page": total_page,
+            "total_count": total_count,
+        }
 
-    async def browse_market(self, lo, hi, game="csgo", page_num=1, page_size=20):
+    async def browse_market(self, game="csgo", page_num=1, page_size=20):
         if self.fail:
             raise LoginRequiredError("请先登录")
+        if isinstance(self.deep, list):
+            result = self.deep[page_num - 1] if page_num <= len(self.deep) else {"items": []}
+            return {**result, "page_num": page_num, "total_page": len(self.deep)}
         return self.deep
 
 
@@ -108,7 +126,43 @@ def test_keyword_scan_computes_prices():
         assert it["steam_net"] == 245.65  # 289 -> 到分
         assert it["discount"] == pytest.approx(200 / 245.65, rel=1e-3)
         assert db.get_history(conn, "AK-47 | Redline (Field-Tested)") != []
-        assert events == ["scan_start", "scan_done"]
+        assert events[0] == "scan_start"
+        assert "scan_progress" in events
+        assert events[-1] == "scan_done"
+        conn.close()
+
+    asyncio.run(scenario())
+
+
+def test_keyword_scan_fetches_every_page_and_deduplicates():
+    async def scenario():
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
+        db.init_db(conn)
+        repeated = make_item("AK-47 | Redline", 200)
+        buff = FakeBuff({
+            "ak": [
+                [repeated, make_item("AK-47 | Slate", 100)],
+                [repeated, make_item("AK-47 | Asiimov", 300)],
+            ]
+        })
+        prices = {
+            name: {"success": True, "lowest_price": "¥ 400.00", "volume": "2"}
+            for name in ("AK-47 | Redline", "AK-47 | Slate", "AK-47 | Asiimov")
+        }
+        scanner = Scanner(
+            buff,
+            FakeSteam(prices),
+            conn,
+            asyncio.Lock(),
+            lambda: make_cfg(keywords=["ak"]),
+        )
+
+        await scanner.request_scan("keyword")
+        await wait_idle(scanner)
+
+        assert buff.search_calls == [("ak", 1), ("ak", 2)]
+        assert scanner.last_item_count == 3
+        assert len(db.list_items(conn)) == 3
         conn.close()
 
     asyncio.run(scenario())
@@ -119,7 +173,7 @@ def test_deepscan_mode():
         conn = sqlite3.connect(":memory:", check_same_thread=False)
         db.init_db(conn)
         lock = asyncio.Lock()
-        cfg = make_cfg(deep_scan={"enabled": True, "min_price": 20, "max_price": 300, "max_pages": 2})
+        cfg = make_cfg(deep_scan={"enabled": True})
         buff = FakeBuff(
             deep={
                 "items": [make_item("Glock-18 | Fade (Factory New)", 50.0, {"sell_num": 1})],
@@ -133,6 +187,61 @@ def test_deepscan_mode():
         items = db.list_items(conn, source="deepscan")
         assert len(items) == 1
         assert items[0]["source"] == "deepscan"
+        conn.close()
+
+    asyncio.run(scenario())
+
+
+def test_keyword_scan_preempts_and_then_resumes_deep_scan():
+    async def scenario():
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
+        db.init_db(conn)
+        deep_pages = [
+            {"items": [make_item("Deep One", 10)]},
+            {"items": [make_item("Deep Two", 20)]},
+        ]
+        buff = FakeBuff(
+            items_by_kw={"quick": [make_item("Quick Item", 30)]},
+            deep=deep_pages,
+        )
+        prices = {
+            name: {"success": True, "lowest_price": "¥ 50.00", "volume": "1"}
+            for name in ("Deep One", "Deep Two", "Quick Item")
+        }
+        modes = []
+        scanner = None
+        queued_quick = False
+
+        async def on_update(event, payload):
+            nonlocal queued_quick
+            if event == "scan_start":
+                modes.append(payload["mode"])
+            if (
+                not queued_quick
+                and event == "scan_progress"
+                and scanner.current_mode == "deepscan"
+                and (db.get_deep_progress(conn) or {}).get("next_page") == 2
+            ):
+                queued_quick = True
+                await scanner.request_scan("keyword")
+
+        scanner = Scanner(
+            buff,
+            FakeSteam(prices),
+            conn,
+            asyncio.Lock(),
+            lambda: make_cfg(keywords=["quick"]),
+            on_update,
+        )
+
+        await scanner.request_scan("deepscan")
+        await wait_idle(scanner)
+
+        assert modes == ["deepscan", "keyword", "deepscan"]
+        assert db.get_deep_progress(conn)["phase"] == "complete"
+        assert {row["market_hash_name"] for row in db.list_items(conn)} == {
+            "Deep One", "Deep Two", "Quick Item",
+        }
         conn.close()
 
     asyncio.run(scenario())
@@ -167,7 +276,7 @@ def test_login_required_aborts_and_marks_state():
     asyncio.run(scenario())
 
 
-def test_pending_flag_queues():
+def test_duplicate_active_scan_is_not_queued_again():
     async def scenario():
         conn = sqlite3.connect(":memory:", check_same_thread=False)
         db.init_db(conn)
@@ -188,7 +297,7 @@ def test_pending_flag_queues():
 
         scanner = Scanner(buff, steam, conn, lock, lambda: cfg, on_update)
 
-        # 触发第一轮，并在其进行中再请求一轮 -> 第二轮应排队补跑
+        # 同类完整扫描耗时可能较长；重复请求应去重，避免调度器形成扫描风暴。
         await scanner.request_scan("keyword")
         # 等第一轮真正开始（SlowSteam 保证扫描进行中）
         for _ in range(50):
@@ -197,14 +306,12 @@ def test_pending_flag_queues():
             await asyncio.sleep(0.02)
         assert scanner.state == "scanning"
         res2 = await scanner.request_scan("keyword")
-        assert res2["queued"] is True
-        assert scanner.pending == "keyword"
+        assert res2["already_running"] is True
+        assert scanner.pending is None
 
         await wait_idle(scanner)
-        # 第一轮完成后自动补跑第二轮（SlowSteam 单轮约 0.15s，多等一会）
-        await asyncio.sleep(0.4)
-        assert events.count("scan_start") == 2
-        assert events.count("scan_done") == 2
+        assert events.count("scan_start") == 1
+        assert events.count("scan_done") == 1
         assert scanner.last_status == "ok"
         assert scanner.last_item_count == 1
         conn.close()
@@ -244,7 +351,7 @@ def test_stop_cancels_active_scan_and_finishes_record():
 
 def test_scan_error_finishes_record():
     class BrokenBuff(FakeBuff):
-        async def search_goods(self, keyword, game="csgo", page_size=20):
+        async def search_goods(self, keyword, game="csgo", page_num=1, page_size=20):
             raise RuntimeError("upstream failed")
 
     async def scenario():

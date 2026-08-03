@@ -63,11 +63,21 @@ def test_parse_price_str():
 
 def test_normalize_item():
     raw = {
+        "id": 12345,
+        "name": "AK-47 | 红线 (久经沙场)",
         "market_hash_name": "AK-47 | Redline (Field-Tested)",
         "sell_min_price": "200.0",
         "sell_num": 5,
         "buy_max_price": "190.0",
         "buy_num": 1,
+        "goods_info": {
+            "icon_url": "https://example.com/icon.webp",
+            "info": {"tags": {
+                "type": {"localized_name": "步枪"},
+                "weapon": {"localized_name": "AK-47"},
+                "exterior": {"localized_name": "久经沙场"},
+            }},
+        },
     }
     item = normalize_item(raw)
     assert item["market_hash_name"] == raw["market_hash_name"]
@@ -75,6 +85,11 @@ def test_normalize_item():
     assert item["buff_sell_num"] == 5
     assert item["buff_buy_max_price"] == 190.0
     assert item["source"] == "keyword"
+    assert item["buff_goods_id"] == 12345
+    assert item["buff_url"].endswith("goods_id=12345&from=market#tab=selling")
+    assert item["weapon"] == "AK-47"
+    assert item["item_type"] == "步枪"
+    assert item["exterior"] == "久经沙场"
     assert item["updated_at"]
 
 
@@ -89,5 +104,7 @@ def test_to_float():
     assert to_float("12.5") == 12.5
     assert to_float(12) == 12.0
     assert to_float(None) is None
+    assert to_float("0") is None
     assert to_float("0.0") is None
+    assert to_float(-1) is None
     assert to_float("abc") is None

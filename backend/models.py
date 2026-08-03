@@ -8,9 +8,6 @@ from pydantic import BaseModel, Field
 
 class DeepScanIn(BaseModel):
     enabled: Optional[bool] = None
-    min_price: Optional[float] = Field(None, ge=0)
-    max_price: Optional[float] = Field(None, ge=0)
-    max_pages: Optional[int] = Field(None, ge=1, le=100)
     interval_minutes: Optional[int] = Field(None, ge=1)
 
 
@@ -25,7 +22,6 @@ class ConfigIn(BaseModel):
     deep_scan: Optional[DeepScanIn] = None
     scan_interval_minutes: Optional[int] = Field(None, ge=1)
     auto_scan: Optional[bool] = None
-    max_items_per_cycle: Optional[int] = Field(None, ge=1)
     steam_fee_steam_pct: Optional[float] = Field(None, ge=0, le=50)
     steam_fee_game_pct: Optional[float] = Field(None, ge=0, le=50)
     fee_min: Optional[float] = Field(None, ge=0)

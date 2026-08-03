@@ -17,6 +17,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -227,8 +228,8 @@ class BuffClient:
         page_num: int = 1,
         page_size: int = 20,
         sort_by: str = "price.asc",
-    ) -> list[dict[str, Any]]:
-        """按关键词搜索饰品，返回本页 item 列表。"""
+    ) -> dict[str, Any]:
+        """按关键词搜索饰品，返回当前页及完整分页信息。"""
         params = {
             "game": game,
             "page_num": page_num,
@@ -238,30 +239,33 @@ class BuffClient:
         }
         payload = await self._request("GET", "/api/market/goods", params=params)
         data = payload.get("data") or {}
-        return data.get("items") or []
+        return {
+            "items": data.get("items") or [],
+            "page_num": int(data.get("page_num") or page_num),
+            "total_page": int(data.get("total_page") or 1),
+            "total_count": int(data.get("total_count") or 0),
+        }
 
     async def browse_market(
         self,
-        min_price: float,
-        max_price: float,
         game: str = "csgo",
         page_num: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        """按价格区间浏览市场饰品（深度扫描用）。"""
+        """浏览完整市场（深度扫描建立全量索引用）。"""
         params = {
             "game": game,
             "page_num": page_num,
             "page_size": page_size,
-            "min_price": min_price,
-            "max_price": max_price,
             "sort_by": "price.asc",
         }
         payload = await self._request("GET", "/api/market/goods", params=params)
         data = payload.get("data") or {}
         return {
             "items": data.get("items") or [],
+            "page_num": int(data.get("page_num") or page_num),
             "total_page": int(data.get("total_page") or 1),
+            "total_count": int(data.get("total_count") or 0),
         }
 
 
@@ -276,10 +280,11 @@ def _retry_after(resp: httpx.Response) -> int:
 
 def to_float(v: Any) -> Optional[float]:
     """把 Buff 返回的价格字符串/数字/null 归一化为 float。"""
-    if v is None or v == "" or v == "0.0":
+    if v is None or v == "":
         return None
     try:
-        return float(v)
+        value = float(v)
+        return value if value > 0 else None
     except (TypeError, ValueError):
         return None
 
@@ -288,9 +293,32 @@ def normalize_item(raw: dict[str, Any], game: str = "csgo", source: str = "keywo
     """把 Buff /api/market/goods 返回的 item 归一化为我们的统一结构。"""
     sell_min = to_float(raw.get("sell_min_price"))
     buy_max = to_float(raw.get("buy_max_price"))
+    goods_info = raw.get("goods_info") or {}
+    tags = ((goods_info.get("info") or {}).get("tags") or {})
+
+    def tag(name: str) -> Optional[str]:
+        value = tags.get(name) or {}
+        return value.get("localized_name") or None
+
+    goods_id = raw.get("id")
+    market_hash_name = raw.get("market_hash_name") or raw.get("name") or goods_id
+    if goods_id:
+        buff_url = f"{BASE_URL}/market/goods?goods_id={goods_id}&from=market#tab=selling"
+    else:
+        buff_url = f"{BASE_URL}/market/{game}#tab=selling&search={quote(str(market_hash_name or ''))}"
     return {
-        "market_hash_name": raw.get("market_hash_name") or raw.get("name") or raw.get("id"),
+        "market_hash_name": market_hash_name,
         "game": game,
+        "buff_goods_id": int(goods_id) if goods_id else None,
+        "display_name": raw.get("name") or raw.get("short_name") or market_hash_name,
+        "buff_url": buff_url,
+        "icon_url": goods_info.get("icon_url") or goods_info.get("original_icon_url"),
+        "item_type": tag("type"),
+        "weapon": tag("weapon"),
+        "category": tag("category"),
+        "exterior": tag("exterior"),
+        "rarity": tag("rarity"),
+        "quality": tag("quality"),
         "buff_price": sell_min,
         "buff_sell_num": int(raw.get("sell_num") or 0),
         "buff_buy_num": int(raw.get("buy_num") or 0),

@@ -1,4 +1,4 @@
-"""WebSocket 实时通道：连接/重连后立即推送全量快照，之后推送增量事件。"""
+"""WebSocket 实时通道：推送状态快照；商品列表通过分页 HTTP API 获取。"""
 from __future__ import annotations
 
 import logging
@@ -17,7 +17,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     app_state.ws_connections.add(ws)
     try:
-        # 连接即推全量快照（含登录态、扫描状态、配置、排名）
+        # 连接即推状态快照；大规模商品索引不进入 WebSocket 消息。
         await app_state.refresh_login()
         await ws.send_json(app_state.snapshot())
         while True:

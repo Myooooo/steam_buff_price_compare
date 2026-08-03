@@ -35,10 +35,7 @@ DEFAULT_USER_AGENT = (
 @dataclass
 class DeepScanConfig:
     enabled: bool = False
-    min_price: float = 20.0
-    max_price: float = 300.0
-    max_pages: int = 10
-    # 深度扫描的额外间隔（分钟）；enabled 时按此间隔跑，否则只能手动触发
+    # 全市场深度扫描的额外间隔（分钟）；未完成时触发会从 SQLite 检查点续跑
     interval_minutes: int = 240
 
 
@@ -52,16 +49,15 @@ class Config:
     steam_appid: int = 730
     currency: int = 23  # Steam currency=23 即 CNY
 
-    # 候选池：关键词列表（主）+ 价格区间深度扫描（可选）
+    # 候选池：关键词完整分页（主）+ 全市场持久化深度扫描（可选）
     keywords: list[str] = field(default_factory=lambda: ["ak-47", "usp", "蝴蝶刀", "胶囊"])
-    page_size: int = 20  # 每个关键词取 Buff 搜索结果前 N 条
+    page_size: int = 80  # BUFF 每页请求量；扫描会继续请求后续所有分页
 
     deep_scan: DeepScanConfig = field(default_factory=DeepScanConfig)
 
     # 扫描周期
     scan_interval_minutes: int = 15
     auto_scan: bool = True
-    max_items_per_cycle: int = 100  # 单轮最多处理的候选数（防风控）
 
     # Steam 手续费模型（CS2 现为 5% + 10% = 15%，规则若变只需改这两个数字）
     steam_fee_steam_pct: float = 5.0

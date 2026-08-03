@@ -29,3 +29,14 @@ async def scan_status() -> dict[str, Any]:
     if app_state.scanner is None:
         return {"state": "idle"}
     return app_state.scanner.status()
+
+
+@router.post("/deep/pause")
+async def pause_deep_scan() -> dict[str, Any]:
+    """暂停长时间运行的深度扫描，已落库检查点不会丢失。"""
+    if app_state.scanner is None:
+        raise HTTPException(status_code=503, detail="扫描器未就绪")
+    paused = await app_state.scanner.pause_deep_scan()
+    if not paused:
+        raise HTTPException(status_code=409, detail="当前没有正在运行的深度扫描")
+    return {"ok": True, "paused": True, "progress": app_state.scanner.status().get("deep_scan")}

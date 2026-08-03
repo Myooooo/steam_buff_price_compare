@@ -123,7 +123,7 @@ app = FastAPI(title="Steam × Buff 倒余额折价对比", lifespan=lifespan)
 
 @app.get("/api/status")
 async def api_status() -> dict:
-    """聚合快照：登录态 + 扫描状态 + 调度器 + 配置 + 排名（WS 断线兜底）。"""
+    """聚合状态快照（商品排名由分页接口单独获取）。"""
     await app_state.refresh_login()
     return app_state.snapshot()
 

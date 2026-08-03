@@ -16,9 +16,9 @@ def test_load_config_ignores_unknown_fields(tmp_path):
     path = tmp_path / "config.json"
     path.write_text(
         json.dumps(
-            {
-                "keywords": ["ak-47"],
-                "deep_scan": {"enabled": True, "max_pages": 3, "removed_field": "ignored"},
+                {
+                    "keywords": ["ak-47"],
+                    "deep_scan": {"enabled": True, "max_pages": 3, "removed_field": "ignored"},
                 "removed_field": "ignored",
             }
         ),
@@ -29,7 +29,7 @@ def test_load_config_ignores_unknown_fields(tmp_path):
 
     assert config.keywords == ["ak-47"]
     assert config.deep_scan.enabled is True
-    assert config.deep_scan.max_pages == 3
+    assert not hasattr(config.deep_scan, "max_pages")
     assert not hasattr(config, "removed_field")
 
 
@@ -50,7 +50,7 @@ def test_config_input_validation():
     with pytest.raises(ValidationError):
         ConfigIn(keywords=[])
     with pytest.raises(ValidationError):
-        ConfigIn(deep_scan={"max_pages": 0})
+        ConfigIn(deep_scan={"interval_minutes": 0})
 
 
 def test_disabling_auto_scan_stops_scheduler():

@@ -83,12 +83,11 @@ class AppState:
 
     # ---------- 快照 ----------
 
-    def snapshot(self, include_items: bool = True) -> dict[str, Any]:
+    def snapshot(self, include_items: bool = False) -> dict[str, Any]:
         scan = self.scanner.status() if self.scanner else {}
         qr_state = self.qr.status() if self.qr else {"state": "idle"}
         user = self._login_user or {}
-        items = self.items() if include_items else []
-        return {
+        snapshot = {
             "type": "snapshot",
             "buff": {
                 "logged_in": self._buff_logged_in,
@@ -101,9 +100,11 @@ class AppState:
                 "next_deep_run": self.scheduler.next_deep_run if self.scheduler else None,
             },
             "config": asdict(self.config),
-            "items": items,
             "ts": dbmod.now_iso(),
         }
+        if include_items:
+            snapshot["items"] = self.items()
+        return snapshot
 
 
 # 全局单例（单进程单 worker）
