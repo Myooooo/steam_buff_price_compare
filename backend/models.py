@@ -28,6 +28,7 @@ class ConfigIn(BaseModel):
     fee_round: Optional[Literal["cent", "yuan"]] = None
     request_delay_sec: Optional[float] = Field(None, ge=0)
     steam_delay_sec: Optional[float] = Field(None, ge=0)
+    steam_buff_fallback: Optional[bool] = None
     history_keep_days: Optional[int] = Field(None, ge=0)
     user_agent: Optional[str] = None
     log_level: Optional[Literal["DEBUG", "INFO", "WARNING", "ERROR"]] = None

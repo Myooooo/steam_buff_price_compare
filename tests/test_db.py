@@ -22,6 +22,10 @@ def item(name, scan_id, **overrides):
         "steam_price": 200.0,
         "steam_net": 170.0,
         "discount": 0.588,
+        "steam_sell_num": 100,
+        "steam_price_source": "steam_search",
+        "spread_pct": 0.05,
+        "score": 60.0,
         "source": "keyword",
         "updated_at": db.now_iso(),
     }
@@ -31,7 +35,10 @@ def item(name, scan_id, **overrides):
 
 def test_query_items_filters_sorts_and_marks_freshness():
     conn = make_conn()
-    first, first_scan = item("AK-47 | Redline", 1, buff_price=120.0, steam_price=90.0, steam_net=76.0)
+    first, first_scan = item(
+        "AK-47 | Redline", 1, buff_price=120.0, steam_price=90.0,
+        steam_net=76.0, discount=0.8, score=45.0,
+    )
     second, second_scan = item(
         "M4A1-S | Printstream",
         2,
@@ -39,6 +46,7 @@ def test_query_items_filters_sorts_and_marks_freshness():
         exterior="崭新出厂",
         buff_price=80.0,
         discount=0.5,
+        score=88.0,
     )
     db.save_item(conn, first, scan_id=first_scan)
     db.save_item(conn, second, scan_id=second_scan)
@@ -63,6 +71,11 @@ def test_query_items_filters_sorts_and_marks_freshness():
     assert [row["market_hash_name"] for row in steam_filtered["items"]] == ["M4A1-S | Printstream"]
     net_filtered = db.query_items(conn, price_basis="steam_net", max_price=100)
     assert [row["market_hash_name"] for row in net_filtered["items"]] == ["AK-47 | Redline"]
+    opportunity_filtered = db.query_items(conn, min_score=80, max_discount=0.7)
+    assert [row["market_hash_name"] for row in opportunity_filtered["items"]] == ["M4A1-S | Printstream"]
+    assert [row["market_hash_name"] for row in db.query_items(conn)["items"]] == [
+        "M4A1-S | Printstream", "AK-47 | Redline",
+    ]
     assert "M4A1-S" in db.item_facets(conn)["weapons"]
     conn.close()
 
@@ -97,6 +110,8 @@ def test_deep_scan_checkpoint_resumes_and_completes():
         "buff_goods_id": 100,
         "display_name": "AK-47 | 红线",
         "buff_price": 100.0,
+        "steam_reference_usd": 40.0,
+        "steam_reference_cny": 270.0,
         "source": "deepscan",
         "updated_at": db.now_iso(),
     }]
@@ -126,11 +141,16 @@ def test_deep_scan_checkpoint_resumes_and_completes():
     db.set_deep_phase(conn, "csgo", 1, "pricing")
     candidate = db.next_deep_item(conn, "csgo", 1)
     assert candidate["market_hash_name"] == "AK-47 | Redline"
+    assert candidate["steam_reference_usd"] == 40.0
+    assert candidate["steam_reference_cny"] == 270.0
     candidate.update(
         steam_price=200.0,
-        steam_volume=10,
+        steam_sell_num=10,
+        steam_price_source="steam_search",
         steam_net=170.0,
         discount=0.588,
+        spread_pct=0.05,
+        score=70.0,
         updated_at=db.now_iso(),
     )
     db.finish_deep_item(conn, candidate, 1, 9, success=True)
@@ -153,9 +173,19 @@ def test_init_db_migrates_legacy_items_table():
            steam_price REAL, steam_volume INTEGER, steam_net REAL, discount REAL,
            source TEXT, updated_at TEXT, first_seen_at TEXT)"""
     )
+    conn.execute(
+        """CREATE TABLE deep_scan_index (
+           game TEXT, market_hash_name TEXT, generation INTEGER,
+           priced_generation INTEGER, PRIMARY KEY (game, market_hash_name))"""
+    )
 
     db.init_db(conn)
 
     columns = {row[1] for row in conn.execute("PRAGMA table_info(items)")}
-    assert {"buff_goods_id", "weapon", "exterior", "last_scan_id"} <= columns
+    assert {
+        "buff_goods_id", "weapon", "exterior", "last_scan_id", "steam_sell_num",
+        "steam_price_source", "spread_pct", "score",
+    } <= columns
+    deep_columns = {row[1] for row in conn.execute("PRAGMA table_info(deep_scan_index)")}
+    assert {"steam_reference_usd", "steam_reference_cny"} <= deep_columns
     conn.close()

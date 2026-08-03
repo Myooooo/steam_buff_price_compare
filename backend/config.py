@@ -68,6 +68,7 @@ class Config:
     # 请求节流，防止被 Buff/Steam 风控
     request_delay_sec: float = 1.0  # Buff 每个搜索请求之间
     steam_delay_sec: float = 0.5  # Steam 每个价格请求之间
+    steam_buff_fallback: bool = True  # Steam 直查失败时使用 BUFF 同步的 Steam CNY 参考价
 
     # 数据保留
     history_keep_days: int = 30

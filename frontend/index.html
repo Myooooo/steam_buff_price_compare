@@ -102,14 +102,25 @@
           <div class="price-filter-head"><span>价格区间</span><select id="filter-price-basis" aria-label="价格筛选口径"><option value="buff_price">BUFF 价</option><option value="steam_price">Steam 价</option><option value="steam_net">到手价</option></select></div>
           <div><input id="filter-price-min" type="number" min="0" step="1" placeholder="最低"><i>—</i><input id="filter-price-max" type="number" min="0" step="1" placeholder="最高"></div>
         </div>
+        <div class="price-filter metric-filter">
+          <div class="price-filter-head"><span>评分</span><small>0–100</small></div>
+          <div><input id="filter-score-min" type="number" min="0" max="100" step="1" placeholder="最低"><i>—</i><input id="filter-score-max" type="number" min="0" max="100" step="1" placeholder="最高"></div>
+        </div>
+        <div class="price-filter metric-filter">
+          <div class="price-filter-head"><span>折价系数</span><small>越低越优</small></div>
+          <div><input id="filter-discount-min" type="number" min="0" step="0.01" placeholder="0.60"><i>—</i><input id="filter-discount-max" type="number" min="0" step="0.01" placeholder="1.00"></div>
+        </div>
         <label class="filter-field sort-field"><span>排序</span>
           <select id="filter-sort">
+            <option value="score:desc">评分 · 从高到低</option>
+            <option value="score:asc">评分 · 从低到高</option>
             <option value="discount:asc">折价 · 从低到高</option>
             <option value="discount:desc">折价 · 从高到低</option>
+            <option value="spread_pct:asc">BUFF 买卖价差 · 从低到高</option>
             <option value="buff_price:asc">BUFF 价 · 从低到高</option>
             <option value="buff_price:desc">BUFF 价 · 从高到低</option>
             <option value="steam_price:desc">Steam 价 · 从高到低</option>
-            <option value="steam_volume:desc">Steam 成交量 · 从高到低</option>
+            <option value="steam_sell_num:desc">Steam 在售 · 从高到低</option>
             <option value="buff_sell_num:desc">BUFF 在售 · 从高到低</option>
             <option value="updated_at:desc">更新时间 · 最新优先</option>
             <option value="name:asc">名称 · A-Z</option>
@@ -127,11 +138,13 @@
               <th class="rank-col">#</th>
               <th>饰品 / BUFF 商品</th>
               <th>状态</th>
+              <th class="num" title="折价 50% + BUFF 在售 15% + Steam 在售 20% + 买卖价差 15%">评分</th>
               <th class="num">BUFF 价</th>
               <th class="num optional-col">Steam 最低</th>
               <th class="num optional-col">到手余额</th>
               <th class="num">折价</th>
-              <th class="num volume-col">Steam 量</th>
+              <th class="num volume-col">BUFF 买卖差</th>
+              <th class="num volume-col">Steam 在售</th>
               <th class="num volume-col">BUFF 在售</th>
               <th class="spark-col">30 日走势</th>
               <th>更新</th>
@@ -222,7 +235,9 @@
             <label>Steam 费率 %<input type="number" id="cfg-fee-steam" min="0" max="50" step="0.1"></label>
             <label>游戏费率 %<input type="number" id="cfg-fee-game" min="0" max="50" step="0.1"></label>
             <label>取整<select id="cfg-fee-round"><option value="cent">向上到分</option><option value="yuan">向上到元</option></select></label>
+            <label class="check-line"><input type="checkbox" id="cfg-steam-fallback">Steam 直查失败时使用 BUFF 同步价</label>
           </div>
+          <p class="field-help">Steam 社区市场搜索是主数据源；BUFF 同步价仅在限流、无精确结果或网络失败时兜底，兜底记录不包含 Steam 在售数量。</p>
         </fieldset>
         <div class="modal-actions">
           <button type="submit" class="btn btn-accent">保存设置</button>

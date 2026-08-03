@@ -213,6 +213,10 @@ function filterParams(page) {
     price_basis: $("filter-price-basis").value,
     min_price: $("filter-price-min").value,
     max_price: $("filter-price-max").value,
+    min_score: $("filter-score-min").value,
+    max_score: $("filter-score-max").value,
+    min_discount: $("filter-discount-min").value,
+    max_discount: $("filter-discount-max").value,
   };
   Object.entries(values).forEach(([key, value]) => { if (value !== "") params.set(key, value); });
   const [sortBy, sortOrder] = $("filter-sort").value.split(":");
@@ -278,6 +282,10 @@ function renderTable() {
     const tags = [item.weapon, item.item_type, item.exterior].filter(Boolean).slice(0, 3);
     const displayName = item.display_name || item.market_hash_name;
     const marketName = displayName === item.market_hash_name ? (item.weapon || "BUFF 市场商品") : item.market_hash_name;
+    const scoreTone = item.score >= 75 ? "high" : (item.score >= 50 ? "medium" : "low");
+    const priceSource = item.steam_price_source === "steam_search"
+      ? "Steam 直查"
+      : (item.steam_price_source === "buff_steam_reference" ? "BUFF 兜底" : "");
     row.innerHTML = `
       <td class="rank-col">${(state.list.page - 1) * state.list.page_size + index + 1}</td>
       <td class="item-cell">
@@ -292,11 +300,13 @@ function renderTable() {
         </a>
       </td>
       <td><span class="freshness-pill ${isLatest ? "latest" : "cached"}"><i></i>${isLatest ? "最新数据" : "缓存数据"}</span></td>
+      <td class="num"><span class="score-badge ${scoreTone}">${item.score == null ? "—" : item.score.toFixed(1)}${item.score == null ? "" : "<small>分</small>"}</span></td>
       <td class="num"><span class="price-main">${fmtCurrency(item.buff_price)}</span></td>
-      <td class="num optional-col">${fmtCurrency(item.steam_price)}</td>
+      <td class="num optional-col"><span class="steam-price-cell">${fmtCurrency(item.steam_price)}${priceSource ? `<small class="price-source ${item.steam_price_source === "steam_search" ? "direct" : "fallback"}">${priceSource}</small>` : ""}</span></td>
       <td class="num optional-col">${fmtCurrency(item.steam_net)}</td>
       <td class="num"><span class="discount ${item.discount > 1 ? "loss" : ""}">${item.discount != null ? (item.discount * 10).toFixed(1) : "—"}${item.discount != null ? "<small>折</small>" : ""}</span></td>
-      <td class="num volume-col">${item.steam_volume == null ? "—" : numberFmt.format(item.steam_volume)}</td>
+      <td class="num volume-col">${item.spread_pct == null ? "—" : `${(item.spread_pct * 100).toFixed(1)}%`}</td>
+      <td class="num volume-col">${item.steam_sell_num == null ? "—" : numberFmt.format(item.steam_sell_num)}</td>
       <td class="num volume-col">${item.buff_sell_num == null ? "—" : numberFmt.format(item.buff_sell_num)}</td>
       <td class="spark-col"><span class="spark-cell"></span></td>
       <td class="updated-cell" title="${esc(item.updated_at || "")}">${fmtTime(item.updated_at)}</td>`;
@@ -324,10 +334,10 @@ function scheduleLiveItemRefresh() {
 }
 
 function resetFilters() {
-  ["filter-keyword", "filter-price-min", "filter-price-max"].forEach((id) => { $(id).value = ""; });
+  ["filter-keyword", "filter-price-min", "filter-price-max", "filter-score-min", "filter-score-max", "filter-discount-min", "filter-discount-max"].forEach((id) => { $(id).value = ""; });
   ["filter-weapon", "filter-type", "filter-exterior", "filter-freshness", "filter-source"].forEach((id) => { $(id).value = ""; });
   $("filter-price-basis").value = "buff_price";
-  $("filter-sort").value = "discount:asc";
+  $("filter-sort").value = "score:desc";
   $("only-profitable").checked = true;
   refreshItems({ page: 1 });
 }
@@ -444,6 +454,7 @@ function openSettings() {
   $("cfg-fee-steam").value = config.steam_fee_steam_pct ?? 5;
   $("cfg-fee-game").value = config.steam_fee_game_pct ?? 10;
   $("cfg-fee-round").value = config.fee_round || "cent";
+  $("cfg-steam-fallback").checked = config.steam_buff_fallback !== false;
   openModal("settings-modal");
 }
 
@@ -461,6 +472,7 @@ async function saveSettings(event) {
     steam_fee_steam_pct: parseFloat($("cfg-fee-steam").value) || 5,
     steam_fee_game_pct: parseFloat($("cfg-fee-game").value) || 10,
     fee_round: $("cfg-fee-round").value,
+    steam_buff_fallback: $("cfg-steam-fallback").checked,
   };
   try {
     state.config = await api("/api/config", {
@@ -539,7 +551,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("settings-form").addEventListener("submit", saveSettings);
 
   ["filter-weapon", "filter-type", "filter-exterior", "filter-freshness", "filter-source", "filter-price-basis", "filter-sort", "only-profitable"].forEach((id) => $(id).addEventListener("change", () => refreshItems({ page: 1 })));
-  ["filter-keyword", "filter-price-min", "filter-price-max"].forEach((id) => $(id).addEventListener("input", scheduleFilterRefresh));
+  ["filter-keyword", "filter-price-min", "filter-price-max", "filter-score-min", "filter-score-max", "filter-discount-min", "filter-discount-max"].forEach((id) => $(id).addEventListener("input", scheduleFilterRefresh));
   $("btn-filter-reset").addEventListener("click", resetFilters);
   $("btn-page-prev").addEventListener("click", () => refreshItems({ page: state.list.page - 1 }));
   $("btn-page-next").addEventListener("click", () => refreshItems({ page: state.list.page + 1 }));

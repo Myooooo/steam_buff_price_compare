@@ -245,6 +245,7 @@ a { color: inherit; text-decoration: none; }
 .price-filter > div { display: flex; align-items: center; gap: 5px; }
 .price-filter .price-filter-head { justify-content: space-between; }
 .price-filter-head select { width: auto; min-height: 18px; padding: 0 4px; border-radius: 4px; color: var(--cyan); font-size: 8px; }
+.metric-filter small { color: #587176; font-size: 8px; font-weight: 700; letter-spacing: 0; }
 .price-filter input { min-width: 0; padding: 0 7px; cursor: text; }
 .price-filter i { color: #51676a; font-style: normal; }
 .sort-field { grid-column: span 2; }
@@ -284,6 +285,15 @@ tr:hover .item-image img { transform: scale(1.08) rotate(-1deg); }
 .item-link .jump { color: #4d696d; font-size: 14px; transition: transform .2s, color .2s; }
 tr:hover .jump { transform: translate(2px, -2px); color: var(--cyan); }
 .price-main { color: #eaf3f1; font-size: 12px; font-weight: 750; }
+.score-badge { display: inline-flex; align-items: baseline; gap: 2px; min-width: 48px; justify-content: flex-end; color: #809397; font-size: 17px; font-weight: 900; }
+.score-badge small { font-size: 8px; }
+.score-badge.high { color: var(--green); text-shadow: 0 0 14px rgba(97,226,142,.24); }
+.score-badge.medium { color: var(--amber); }
+.score-badge.low { color: #7b9094; }
+.steam-price-cell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.price-source { padding: 1px 4px; border: 1px solid; border-radius: 3px; font-size: 7px; font-weight: 800; letter-spacing: .03em; }
+.price-source.direct { color: var(--cyan); border-color: rgba(92,226,216,.22); background: rgba(92,226,216,.06); }
+.price-source.fallback { color: var(--amber); border-color: rgba(255,180,84,.2); background: rgba(255,180,84,.06); }
 .discount { display: inline-flex; align-items: baseline; gap: 2px; color: var(--green); font-size: 16px; font-weight: 900; font-variant-numeric: tabular-nums; }
 .discount small { font-size: 9px; }
 .discount.loss { color: var(--red); }

@@ -9,6 +9,8 @@ import datetime
 import sqlite3
 from typing import Any, Optional
 
+from .scoring import opportunity_score, spread_pct
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
   market_hash_name TEXT PRIMARY KEY,
@@ -29,8 +31,12 @@ CREATE TABLE IF NOT EXISTS items (
   buff_buy_max_price REAL,
   steam_price REAL,
   steam_volume INTEGER,
+  steam_sell_num INTEGER,
+  steam_price_source TEXT,
   steam_net REAL,
   discount REAL,
+  spread_pct REAL,
+  score REAL,
   source TEXT NOT NULL DEFAULT 'keyword',
   last_scan_id INTEGER,
   updated_at TEXT NOT NULL,
@@ -85,6 +91,8 @@ CREATE TABLE IF NOT EXISTS deep_scan_index (
   buff_sell_num INTEGER,
   buff_buy_num INTEGER,
   buff_buy_max_price REAL,
+  steam_reference_usd REAL,
+  steam_reference_cny REAL,
   indexed_at TEXT NOT NULL,
   priced_generation INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (game, market_hash_name)
@@ -118,7 +126,16 @@ _ITEM_MIGRATIONS = {
     "exterior": "TEXT",
     "rarity": "TEXT",
     "quality": "TEXT",
+    "steam_sell_num": "INTEGER",
+    "steam_price_source": "TEXT",
+    "spread_pct": "REAL",
+    "score": "REAL",
     "last_scan_id": "INTEGER",
+}
+
+_DEEP_INDEX_MIGRATIONS = {
+    "steam_reference_usd": "REAL",
+    "steam_reference_cny": "REAL",
 }
 
 
@@ -192,9 +209,26 @@ def init_db(conn: sqlite3.Connection) -> None:
     for column, definition in _ITEM_MIGRATIONS.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE items ADD COLUMN {column} {definition}")
+    deep_existing = {row[1] for row in conn.execute("PRAGMA table_info(deep_scan_index)")}
+    for column, definition in _DEEP_INDEX_MIGRATIONS.items():
+        if column not in deep_existing:
+            conn.execute(f"ALTER TABLE deep_scan_index ADD COLUMN {column} {definition}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_filters ON items(weapon, item_type, exterior)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_item_type ON items(item_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_exterior ON items(exterior)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_items_score ON items(score)")
+    rows = conn.execute(
+        """SELECT market_hash_name, discount, buff_sell_num, steam_sell_num,
+                  buff_price, buff_buy_max_price
+           FROM items WHERE discount IS NOT NULL AND (score IS NULL OR spread_pct IS NULL)"""
+    ).fetchall()
+    for row in rows:
+        spread = spread_pct(row[4], row[5])
+        score = opportunity_score(row[1], row[2], row[3], spread)
+        conn.execute(
+            "UPDATE items SET spread_pct = ?, score = ? WHERE market_hash_name = ?",
+            (spread, score, row[0]),
+        )
     conn.commit()
 
 
@@ -205,9 +239,10 @@ def _upsert_item(conn: sqlite3.Connection, item: dict[str, Any], scan_id: Option
            (market_hash_name, game, buff_goods_id, display_name, buff_url, icon_url,
             item_type, weapon, category, exterior, rarity, quality,
             buff_price, buff_sell_num, buff_buy_num,
-            buff_buy_max_price, steam_price, steam_volume, steam_net, discount,
+            buff_buy_max_price, steam_price, steam_volume, steam_sell_num,
+            steam_price_source, steam_net, discount, spread_pct, score,
             source, last_scan_id, updated_at, first_seen_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(market_hash_name) DO UPDATE SET
              game = excluded.game,
              buff_goods_id = COALESCE(excluded.buff_goods_id, items.buff_goods_id),
@@ -226,8 +261,12 @@ def _upsert_item(conn: sqlite3.Connection, item: dict[str, Any], scan_id: Option
              buff_buy_max_price = excluded.buff_buy_max_price,
              steam_price = excluded.steam_price,
              steam_volume = excluded.steam_volume,
+             steam_sell_num = excluded.steam_sell_num,
+             steam_price_source = excluded.steam_price_source,
              steam_net = excluded.steam_net,
              discount = excluded.discount,
+             spread_pct = excluded.spread_pct,
+             score = excluded.score,
              source = excluded.source,
              last_scan_id = excluded.last_scan_id,
              updated_at = excluded.updated_at""",
@@ -250,8 +289,12 @@ def _upsert_item(conn: sqlite3.Connection, item: dict[str, Any], scan_id: Option
             item.get("buff_buy_max_price"),
             item.get("steam_price"),
             item.get("steam_volume"),
+            item.get("steam_sell_num"),
+            item.get("steam_price_source"),
             item.get("steam_net"),
             item.get("discount"),
+            item.get("spread_pct"),
+            item.get("score"),
             item.get("source", "keyword"),
             scan_id,
             item.get("updated_at", now_iso()),
@@ -288,7 +331,7 @@ def list_items(
     only_profitable: bool = False,
     source: Optional[str] = None,
 ) -> list[dict[str, Any]]:
-    """按折价升序（最优在前）返回全部饰品快照。"""
+    """按机会评分降序返回全部饰品快照。"""
     sql = "SELECT * FROM items"
     conds: list[str] = []
     args: list[Any] = []
@@ -299,7 +342,7 @@ def list_items(
         args.append(source)
     if conds:
         sql += " WHERE " + " AND ".join(conds)
-    sql += " ORDER BY discount ASC NULLS LAST, updated_at DESC"
+    sql += " ORDER BY score DESC NULLS LAST, discount ASC NULLS LAST, updated_at DESC"
     rows = conn.execute(sql, args).fetchall()
     latest_scan_id = conn.execute("SELECT MAX(last_scan_id) FROM items").fetchone()[0]
     return [_with_data_state(dict(row), latest_scan_id) for row in rows]
@@ -327,11 +370,15 @@ def query_items(
     price_basis: str = "buff_price",
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
+    min_score: Optional[float] = None,
+    max_score: Optional[float] = None,
+    min_discount: Optional[float] = None,
+    max_discount: Optional[float] = None,
     only_profitable: bool = False,
     source: Optional[str] = None,
     data_state: Optional[str] = None,
-    sort_by: str = "discount",
-    sort_order: str = "asc",
+    sort_by: str = "score",
+    sort_order: str = "desc",
     page: int = 1,
     page_size: int = 100,
 ) -> dict[str, Any]:
@@ -359,6 +406,16 @@ def query_items(
     if max_price is not None:
         conds.append(f"{price_column} <= ?")
         args.append(max_price)
+    for column, minimum, maximum in (
+        ("score", min_score, max_score),
+        ("discount", min_discount, max_discount),
+    ):
+        if minimum is not None:
+            conds.append(f"{column} >= ?")
+            args.append(minimum)
+        if maximum is not None:
+            conds.append(f"{column} <= ?")
+            args.append(maximum)
     if only_profitable:
         conds.append("discount IS NOT NULL AND discount > 0 AND discount <= 1.0")
     if source:
@@ -382,11 +439,14 @@ def query_items(
         "steam_price": "steam_price",
         "steam_net": "steam_net",
         "discount": "discount",
+        "score": "score",
+        "spread_pct": "spread_pct",
+        "steam_sell_num": "steam_sell_num",
         "steam_volume": "steam_volume",
         "buff_sell_num": "buff_sell_num",
         "updated_at": "updated_at",
     }
-    order_column = sort_columns.get(sort_by, "discount")
+    order_column = sort_columns.get(sort_by, "score")
     direction = "DESC" if sort_order.lower() == "desc" else "ASC"
     offset = (page - 1) * page_size
     rows = conn.execute(
@@ -566,8 +626,8 @@ def save_deep_index_page(
                    (game, market_hash_name, generation, buff_goods_id, display_name,
                     buff_url, icon_url, item_type, weapon, category, exterior, rarity,
                     quality, buff_price, buff_sell_num, buff_buy_num, buff_buy_max_price,
-                    indexed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    steam_reference_usd, steam_reference_cny, indexed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(game, market_hash_name) DO UPDATE SET
                      generation = excluded.generation,
                      buff_goods_id = excluded.buff_goods_id,
@@ -584,6 +644,8 @@ def save_deep_index_page(
                      buff_sell_num = excluded.buff_sell_num,
                      buff_buy_num = excluded.buff_buy_num,
                      buff_buy_max_price = excluded.buff_buy_max_price,
+                     steam_reference_usd = excluded.steam_reference_usd,
+                     steam_reference_cny = excluded.steam_reference_cny,
                      indexed_at = excluded.indexed_at""",
                 (
                     game,
@@ -603,6 +665,8 @@ def save_deep_index_page(
                     item.get("buff_sell_num"),
                     item.get("buff_buy_num"),
                     item.get("buff_buy_max_price"),
+                    item.get("steam_reference_usd"),
+                    item.get("steam_reference_cny"),
                     indexed_at,
                 ),
             )

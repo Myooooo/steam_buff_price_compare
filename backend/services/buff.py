@@ -341,6 +341,10 @@ def normalize_item(raw: dict[str, Any], game: str = "csgo", source: str = "keywo
         "buff_sell_num": int(raw.get("sell_num") or 0),
         "buff_buy_num": int(raw.get("buy_num") or 0),
         "buff_buy_max_price": buy_max,
+        # BUFF 会随商品同步 Steam 的 USD/CNY 参考价。Steam 匿名搜索接口忽略
+        # currency 参数时，用这一对值还原 Steam 当前采用的人民币换算比例。
+        "steam_reference_usd": to_float(goods_info.get("steam_price")),
+        "steam_reference_cny": to_float(goods_info.get("steam_price_cny")),
         "source": source,
         "updated_at": now_iso(),
     }

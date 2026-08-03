@@ -72,6 +72,8 @@ def test_normalize_item():
         "buy_num": 1,
         "goods_info": {
             "icon_url": "https://example.com/icon.webp",
+            "steam_price": "42.52",
+            "steam_price_cny": "287.07",
             "info": {"tags": {
                 "type": {"localized_name": "步枪"},
                 "weapon": {"localized_name": "AK-47"},
@@ -90,6 +92,8 @@ def test_normalize_item():
     assert item["weapon"] == "AK-47"
     assert item["item_type"] == "步枪"
     assert item["exterior"] == "久经沙场"
+    assert item["steam_reference_usd"] == 42.52
+    assert item["steam_reference_cny"] == 287.07
     assert item["updated_at"]
 
 

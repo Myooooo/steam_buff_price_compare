@@ -68,7 +68,19 @@ class FakeSteam:
                 return self._p
 
         r = R()
-        r._p = self.prices.get(params["market_hash_name"], {"success": False})
+        name = params["query"]
+        price = self.prices.get(name)
+        if price and price.get("success"):
+            r._p = {
+                "success": True,
+                "results": [{
+                    "hash_name": name,
+                    "sell_price_text": f'{price["lowest_price"]} CNY',
+                    "sell_listings": price.get("sell_listings", 100),
+                }],
+            }
+        else:
+            r._p = {"success": True, "results": []}
         return r
 
 
@@ -136,6 +148,10 @@ def test_keyword_scan_computes_prices(caplog):
         it = items[0]
         assert it["steam_net"] == 245.65  # 289 -> 到分
         assert it["discount"] == pytest.approx(200 / 245.65, rel=1e-3)
+        assert it["steam_sell_num"] == 100
+        assert it["steam_price_source"] == "steam_search"
+        assert it["spread_pct"] == pytest.approx(0.05)
+        assert 0 < it["score"] <= 100
         assert db.get_history(conn, "AK-47 | Redline (Field-Tested)") != []
         assert events[0] == "scan_start"
         assert "scan_progress" in events

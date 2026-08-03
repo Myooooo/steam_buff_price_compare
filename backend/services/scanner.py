@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from .. import db
 from ..config import Config
+from ..scoring import opportunity_score, spread_pct
 from . import steam as steam_svc
 from .buff import BuffClient, LoginRequiredError, normalize_item
 
@@ -479,6 +480,9 @@ class Scanner:
             appid=cfg.steam_appid,
             currency=cfg.currency,
             delay_sec=cfg.steam_delay_sec,
+            reference_usd=item.get("steam_reference_usd"),
+            reference_cny=item.get("steam_reference_cny"),
+            allow_reference_fallback=cfg.steam_buff_fallback,
         )
         if price is None or not price.success or price.lowest <= 0:
             logger.info("Steam 无有效报价: %s", item["market_hash_name"])
@@ -490,23 +494,38 @@ class Scanner:
             cfg.fee_min,
             cfg.fee_round,
         )
+        discount_value = steam_svc.discount(item["buff_price"], net)
+        spread_value = spread_pct(item["buff_price"], item.get("buff_buy_max_price"))
+        score = opportunity_score(
+            discount_value,
+            item.get("buff_sell_num"),
+            price.sell_listings,
+            spread_value,
+        )
         item.update(
             steam_price=price.lowest,
-            steam_volume=price.volume,
+            steam_sell_num=price.sell_listings,
+            steam_price_source=price.source,
             steam_net=net,
-            discount=steam_svc.discount(item["buff_price"], net),
+            discount=discount_value,
+            spread_pct=spread_value,
+            score=score,
             updated_at=db.now_iso(),
         )
         async with self.db_lock:
             db.save_item(self.db_conn, item, scan_id=scan_id)
         logger.info(
-            "Steam 价格完成: %s | BUFF ¥%.2f | Steam ¥%.2f | 到手 ¥%.2f | %.2f 折",
+            "Steam 价格完成: %s | BUFF ¥%.2f | Steam ¥%.2f | 到手 ¥%.2f | %.2f 折 | 在售 %s | 评分 %.1f",
             item["market_hash_name"],
             item["buff_price"],
             price.lowest,
             net,
             item["discount"] * 10,
+            price.sell_listings if price.sell_listings is not None else "—",
+            score,
         )
+        if price.source != "steam_search":
+            logger.info("Steam 价格来源: %s (%s)", price.source, item["market_hash_name"])
         return True
 
     async def _price_deep_item(
@@ -524,6 +543,9 @@ class Scanner:
                 appid=cfg.steam_appid,
                 currency=cfg.currency,
                 delay_sec=cfg.steam_delay_sec,
+                reference_usd=item.get("steam_reference_usd"),
+                reference_cny=item.get("steam_reference_cny"),
+                allow_reference_fallback=cfg.steam_buff_fallback,
             )
             if price is not None and price.success and price.lowest > 0:
                 net = steam_svc.steam_net(
@@ -533,23 +555,38 @@ class Scanner:
                     cfg.fee_min,
                     cfg.fee_round,
                 )
+                discount_value = steam_svc.discount(item["buff_price"], net)
+                spread_value = spread_pct(item["buff_price"], item.get("buff_buy_max_price"))
+                score = opportunity_score(
+                    discount_value,
+                    item.get("buff_sell_num"),
+                    price.sell_listings,
+                    spread_value,
+                )
                 item.update(
                     source="deepscan",
                     steam_price=price.lowest,
-                    steam_volume=price.volume,
+                    steam_sell_num=price.sell_listings,
+                    steam_price_source=price.source,
                     steam_net=net,
-                    discount=steam_svc.discount(item["buff_price"], net),
+                    discount=discount_value,
+                    spread_pct=spread_value,
+                    score=score,
                     updated_at=db.now_iso(),
                 )
                 success = True
                 logger.info(
-                    "Steam 价格完成: %s | BUFF ¥%.2f | Steam ¥%.2f | 到手 ¥%.2f | %.2f 折",
+                    "Steam 价格完成: %s | BUFF ¥%.2f | Steam ¥%.2f | 到手 ¥%.2f | %.2f 折 | 在售 %s | 评分 %.1f",
                     item["market_hash_name"],
                     item["buff_price"],
                     price.lowest,
                     net,
                     item["discount"] * 10,
+                    price.sell_listings if price.sell_listings is not None else "—",
+                    score,
                 )
+                if price.source != "steam_search":
+                    logger.info("Steam 价格来源: %s (%s)", price.source, item["market_hash_name"])
             else:
                 logger.info("Steam 无有效报价: %s", item["market_hash_name"])
         async with self.db_lock:

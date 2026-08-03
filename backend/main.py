@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await buff.ensure_base_cookies()
     app_state.buff = buff
 
-    # Steam 会话（浏览器指纹绕 WAF）
+    # Steam 市场搜索会话（稳定浏览器请求特征）
     app_state.steam_session = create_steam_session()
 
     # 扫码登录 + 状态回调
