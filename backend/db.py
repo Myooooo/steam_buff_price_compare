@@ -219,16 +219,17 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_score ON items(score)")
     rows = conn.execute(
         """SELECT market_hash_name, discount, buff_sell_num, steam_sell_num,
-                  buff_price, buff_buy_max_price
-           FROM items WHERE discount IS NOT NULL AND (score IS NULL OR spread_pct IS NULL)"""
+                  buff_price, buff_buy_max_price, spread_pct, score
+           FROM items WHERE discount IS NOT NULL"""
     ).fetchall()
     for row in rows:
         spread = spread_pct(row[4], row[5])
         score = opportunity_score(row[1], row[2], row[3], spread)
-        conn.execute(
-            "UPDATE items SET spread_pct = ?, score = ? WHERE market_hash_name = ?",
-            (spread, score, row[0]),
-        )
+        if spread != row[6] or score != row[7]:
+            conn.execute(
+                "UPDATE items SET spread_pct = ?, score = ? WHERE market_hash_name = ?",
+                (spread, score, row[0]),
+            )
     conn.commit()
 
 

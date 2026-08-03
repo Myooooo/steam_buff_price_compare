@@ -6,6 +6,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from .. import db
+from ..scoring import opportunity_score_breakdown
 from ..state import app_state
 
 router = APIRouter(prefix="/api/items", tags=["items"])
@@ -57,6 +58,13 @@ async def list_items(
         page=page,
         page_size=page_size,
     )
+    for item in result["items"]:
+        item["score_breakdown"] = opportunity_score_breakdown(
+            item.get("discount"),
+            item.get("buff_sell_num"),
+            item.get("steam_sell_num"),
+            item.get("spread_pct"),
+        )
     return {**result, "facets": db.item_facets(app_state.db_conn), "ts": db.now_iso()}
 
 

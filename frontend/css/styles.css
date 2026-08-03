@@ -285,7 +285,8 @@ tr:hover .item-image img { transform: scale(1.08) rotate(-1deg); }
 .item-link .jump { color: #4d696d; font-size: 14px; transition: transform .2s, color .2s; }
 tr:hover .jump { transform: translate(2px, -2px); color: var(--cyan); }
 .price-main { color: #eaf3f1; font-size: 12px; font-weight: 750; }
-.score-badge { display: inline-flex; align-items: baseline; gap: 2px; min-width: 48px; justify-content: flex-end; color: #809397; font-size: 17px; font-weight: 900; }
+.score-badge { display: inline-flex; align-items: baseline; gap: 2px; min-width: 48px; justify-content: flex-end; border-bottom: 1px dotted currentColor; color: #809397; font-size: 17px; font-weight: 900; cursor: help; }
+.score-badge:focus-visible { outline: 1px solid var(--cyan); outline-offset: 3px; border-radius: 3px; }
 .score-badge small { font-size: 8px; }
 .score-badge.high { color: var(--green); text-shadow: 0 0 14px rgba(97,226,142,.24); }
 .score-badge.medium { color: var(--amber); }

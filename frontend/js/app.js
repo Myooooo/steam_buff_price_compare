@@ -261,6 +261,29 @@ function setSelectOptions(select, values, emptyLabel) {
   if (values.includes(selected)) select.value = selected;
 }
 
+function scoreTooltip(item) {
+  const detail = item.score_breakdown;
+  if (!detail) return "缺少有效折价，暂不评分";
+  const depthRules = {
+    buff_steam: "BUFF 75% + Steam 25%",
+    buff: "Steam 数量未获取，仅按 BUFF 计算",
+    steam: "BUFF 数量未获取，仅按 Steam 计算",
+    none: "未获取挂牌数量",
+  };
+  const discount = item.discount == null ? "—" : `${(item.discount * 10).toFixed(1)}折`;
+  const spread = item.spread_pct == null ? "无有效买价" : `${(item.spread_pct * 100).toFixed(1)}%`;
+  const buffDepth = item.buff_sell_num == null ? "—" : numberFmt.format(item.buff_sell_num);
+  const steamDepth = item.steam_sell_num == null ? "—" : numberFmt.format(item.steam_sell_num);
+  return [
+    `总分 ${detail.score.toFixed(1)} / 100`,
+    `折价 ${detail.discount_points.toFixed(1)} / 60 · ${discount}`,
+    `流动性 ${detail.liquidity_points.toFixed(1)} / 40`,
+    `买卖价差 ${detail.spread_points.toFixed(1)} / 24 · ${spread}`,
+    `挂牌深度 ${detail.depth_points.toFixed(1)} / 16 · BUFF ${buffDepth} · Steam ${steamDepth}`,
+    `深度合成：${depthRules[detail.depth_source] || depthRules.none}`,
+  ].join("\n");
+}
+
 function renderTable() {
   const tbody = $("rank-body");
   if (state.sparkObserver) state.sparkObserver.disconnect();
@@ -283,6 +306,7 @@ function renderTable() {
     const displayName = item.display_name || item.market_hash_name;
     const marketName = displayName === item.market_hash_name ? (item.weapon || "BUFF 市场商品") : item.market_hash_name;
     const scoreTone = item.score >= 75 ? "high" : (item.score >= 50 ? "medium" : "low");
+    const scoreHelp = scoreTooltip(item);
     const priceSource = item.steam_price_source === "steam_search"
       ? "Steam 直查"
       : (item.steam_price_source === "buff_steam_reference" ? "BUFF 兜底" : "");
@@ -300,7 +324,7 @@ function renderTable() {
         </a>
       </td>
       <td><span class="freshness-pill ${isLatest ? "latest" : "cached"}"><i></i>${isLatest ? "最新数据" : "缓存数据"}</span></td>
-      <td class="num"><span class="score-badge ${scoreTone}">${item.score == null ? "—" : item.score.toFixed(1)}${item.score == null ? "" : "<small>分</small>"}</span></td>
+      <td class="num"><span class="score-badge ${scoreTone}" tabindex="0" title="${esc(scoreHelp)}" aria-label="${esc(scoreHelp)}">${item.score == null ? "—" : item.score.toFixed(1)}${item.score == null ? "" : "<small>分</small>"}</span></td>
       <td class="num"><span class="price-main">${fmtCurrency(item.buff_price)}</span></td>
       <td class="num optional-col"><span class="steam-price-cell">${fmtCurrency(item.steam_price)}${priceSource ? `<small class="price-source ${item.steam_price_source === "steam_search" ? "direct" : "fallback"}">${priceSource}</small>` : ""}</span></td>
       <td class="num optional-col">${fmtCurrency(item.steam_net)}</td>

@@ -2,6 +2,7 @@
 import sqlite3
 
 from backend import db
+from backend.scoring import opportunity_score
 
 
 def make_conn():
@@ -97,6 +98,27 @@ def test_item_assets_are_stored_separately_and_refreshed_by_url():
     assert db.missing_asset_names(conn, [value]) == set()
     changed = {**value, "icon_url": "https://example.com/two.webp"}
     assert db.missing_asset_names(conn, [changed]) == {value["market_hash_name"]}
+    conn.close()
+
+
+def test_init_db_recalculates_existing_scores_after_formula_change():
+    conn = make_conn()
+    value, scan_id = item(
+        "AK-47 | Redline",
+        1,
+        buff_sell_num=100,
+        buff_buy_max_price=95.0,
+        steam_sell_num=None,
+        discount=0.8,
+        score=1.0,
+    )
+    db.save_item(conn, value, scan_id=scan_id)
+
+    db.init_db(conn)
+
+    stored = db.get_item(conn, value["market_hash_name"])
+    assert stored["spread_pct"] == 0.05
+    assert stored["score"] == opportunity_score(0.8, 100, None, 0.05)
     conn.close()
 
 
