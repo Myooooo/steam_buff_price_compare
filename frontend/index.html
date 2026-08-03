@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Steam × Buff 倒余额折价对比</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>倒余额折价对比</h1>
+      <span class="subtitle">Buff 买入 → Steam 卖出换余额</span>
+    </div>
+    <div class="actions">
+      <span id="login-badge" class="badge badge-off">未登录</span>
+      <button id="btn-login" class="btn btn-primary">扫码登录</button>
+      <button id="btn-logout" class="btn btn-ghost" style="display:none">登出</button>
+      <button id="btn-scan" class="btn btn-primary">立即扫描</button>
+      <button id="btn-deepscan" class="btn btn-ghost">深度扫描</button>
+      <button id="btn-settings" class="btn btn-ghost">设置</button>
+    </div>
+  </header>
+
+  <section class="status-strip">
+    <div class="stat"><label>扫描状态</label><span id="scan-state">—</span></div>
+    <div class="stat"><label>上次扫描</label><span id="scan-last">—</span></div>
+    <div class="stat"><label>下次扫描</label><span id="scan-next">—</span></div>
+    <div class="stat"><label>上次结果</label><span id="scan-result">—</span></div>
+    <div class="stat stat-msg" id="scan-msg"></div>
+  </section>
+
+  <section class="filter-bar">
+    <label class="checkbox">
+      <input type="checkbox" id="only-profitable" checked>
+      只看可赚（折价 ≤ 1.0）
+    </label>
+    <label class="select">
+      来源
+      <select id="filter-source">
+        <option value="">全部</option>
+        <option value="keyword">关键词</option>
+        <option value="deepscan">深度扫描</option>
+      </select>
+    </label>
+    <span class="hint" id="count-hint"></span>
+  </section>
+
+  <main class="table-wrap">
+    <table id="rank-table">
+      <thead>
+        <tr>
+          <th class="num">#</th>
+          <th>饰品</th>
+          <th class="num">Buff 价 ¥</th>
+          <th class="num">Steam 最低 ¥</th>
+          <th class="num">到手余额 ¥</th>
+          <th class="num">折价</th>
+          <th class="num">Steam 量</th>
+          <th class="num">Buff 在售</th>
+          <th class="spark">走势</th>
+          <th>更新</th>
+        </tr>
+      </thead>
+      <tbody id="rank-body"></tbody>
+    </table>
+    <div id="empty-hint" class="empty-hint" style="display:none">
+      暂无数据。请先扫码登录 Buff，然后点「立即扫描」或等待自动扫描。
+    </div>
+  </main>
+
+  <footer class="footer">
+    <span>⚠️ 提醒：Buff 提货到 Steam 后饰品有 7 天不可上架期；2025 起存在 Trade Protection（对方可撤回交易一次）。</span>
+  </footer>
+
+  <!-- 登录弹窗 -->
+  <div id="login-modal" class="modal-backdrop" style="display:none">
+    <div class="modal">
+      <h2>扫码登录 Buff</h2>
+      <p class="muted">用 Buff / 网易账号 App 扫码，确认后自动获取登录会话。</p>
+      <div id="qr-box" class="qr-box"></div>
+      <div id="qr-status" class="qr-status">正在生成二维码…</div>
+      <div class="modal-actions">
+        <button id="btn-qr-refresh" class="btn btn-ghost">刷新二维码</button>
+        <button id="btn-qr-cancel" class="btn btn-ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设置弹窗 -->
+  <div id="settings-modal" class="modal-backdrop" style="display:none">
+    <div class="modal modal-wide">
+      <h2>设置</h2>
+      <form id="settings-form">
+        <fieldset>
+          <legend>候选池</legend>
+          <div class="row">
+            <label>关键词（逗号分隔）<textarea id="cfg-keywords" rows="3" spellcheck="false"></textarea></label>
+            <label>每个关键词取前 N 条<input type="number" id="cfg-page-size" min="1" max="200"></label>
+          </div>
+          <div class="row">
+            <label class="checkbox"><input type="checkbox" id="cfg-deep-enabled">启用价格区间深度扫描（低频）</label>
+            <label>最低价 ¥<input type="number" id="cfg-deep-min" min="0" step="1"></label>
+            <label>最高价 ¥<input type="number" id="cfg-deep-max" min="0" step="1"></label>
+            <label>最多页数<input type="number" id="cfg-deep-pages" min="1" max="100"></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>扫描</legend>
+          <div class="row">
+            <label>间隔（分钟）<input type="number" id="cfg-interval" min="1"></label>
+            <label class="checkbox"><input type="checkbox" id="cfg-auto-scan">启动后自动扫描</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Steam 手续费模型（CS2 现为 5% + 10%）</legend>
+          <div class="row">
+            <label>Steam 费率 %<input type="number" id="cfg-fee-steam" min="0" max="50" step="0.1"></label>
+            <label>游戏费率 %<input type="number" id="cfg-fee-game" min="0" max="50" step="0.1"></label>
+            <label>
+              取整
+              <select id="cfg-fee-round">
+                <option value="cent">到分（官方口径）</option>
+                <option value="yuan">到元</option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">保存</button>
+          <button type="button" id="btn-settings-cancel" class="btn btn-ghost">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
