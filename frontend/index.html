@@ -22,7 +22,6 @@
       </span>
       <span>
         <strong>SKIN<span>RADAR</span></strong>
-        <small>STEAM × BUFF VALUE INTELLIGENCE</small>
       </span>
     </a>
     <div class="actions">
@@ -35,56 +34,31 @@
   </header>
 
   <main class="shell">
-    <section class="command-grid enter">
-      <article class="command-card overview-card">
-        <div class="eyebrow"><span>MARKET COMMAND</span><i></i></div>
-        <div class="overview-head">
-          <div>
-            <p class="kicker">折价机会雷达</p>
-            <h1>把市场噪声，压缩成可行动的价格信号。</h1>
-            <p class="lede">完整遍历关键词结果，持续维护 BUFF 全市场索引。每一行都标明是本轮新数据还是历史缓存。</p>
-          </div>
-          <div class="radar-orb" aria-hidden="true"><span></span><i></i></div>
-        </div>
-        <div class="scan-actions">
-          <button id="btn-scan" class="scan-cta scan-cta-primary">
-            <span class="scan-cta-icon">↻</span>
-            <span><strong>立即扫描</strong><small>关键词 · 全部搜索分页</small></span>
-            <em>QUICK</em>
-          </button>
-          <button id="btn-deepscan" class="scan-cta scan-cta-deep">
-            <span class="scan-cta-icon">⌗</span>
-            <span><strong>深度扫描</strong><small>全市场索引 · 断点续传</small></span>
-            <em>DEEP</em>
-          </button>
-        </div>
-      </article>
+    <section class="scan-console enter">
+      <div class="scan-actions">
+        <button id="btn-scan" class="scan-cta scan-cta-primary">
+          <span class="scan-cta-icon">↻</span>
+          <span><strong>立即扫描</strong><small>关键词 · 全部搜索分页</small></span>
+          <em>QUICK</em>
+        </button>
+        <button id="btn-deepscan" class="scan-cta scan-cta-deep">
+          <span class="scan-cta-icon">⌗</span>
+          <span><strong>深度扫描</strong><small>全市场索引 · 断点续传</small></span>
+          <em>DEEP</em>
+        </button>
+      </div>
 
-      <aside class="command-card telemetry-card">
-        <div class="panel-heading">
-          <div><span class="panel-code">SYS / 01</span><h2>扫描遥测</h2></div>
-          <span id="scan-state" class="state-pill">空闲</span>
-        </div>
-        <div class="telemetry-grid">
-          <div><span>上次扫描</span><strong id="scan-last">—</strong></div>
-          <div><span>下次扫描</span><strong id="scan-next">—</strong></div>
-          <div class="telemetry-wide"><span>任务进度</span><strong id="scan-result">等待扫描指令</strong></div>
+      <div class="scan-monitor">
+        <div class="monitor-cell state-cell"><span>扫描状态</span><strong><i id="scan-state" class="state-pill">空闲</i></strong></div>
+        <div class="monitor-cell"><span>上次扫描</span><strong id="scan-last">—</strong></div>
+        <div class="monitor-cell"><span>下次扫描</span><strong id="scan-next">—</strong></div>
+        <div class="monitor-cell progress-cell"><span>扫描进度</span><strong id="scan-result">等待扫描指令</strong></div>
+        <div class="deep-monitor">
+          <div class="deep-monitor-head"><span>深度扫描进度</span><i id="deep-phase" class="phase-pill">尚未开始</i></div>
+          <div class="meter-track"><span id="deep-progress-fill"></span></div>
+          <div class="meter-meta"><strong id="deep-progress-text">0%</strong><span id="deep-progress-detail">等待建立索引</span></div>
         </div>
         <div id="scan-msg" class="notice-line" role="status" aria-live="polite"></div>
-      </aside>
-    </section>
-
-    <section id="deep-panel" class="deep-panel enter">
-      <div class="deep-copy">
-        <span class="warning-icon">!</span>
-        <div>
-          <div class="deep-title-row"><h2>全市场深度索引</h2><span id="deep-phase" class="phase-pill">尚未开始</span></div>
-          <p>先建立 BUFF 全量饰品索引，再逐件查询 Steam 价格。任务可能持续数小时至数天，可随时暂停，重启后从 SQLite 检查点继续。</p>
-        </div>
-      </div>
-      <div class="deep-meter">
-        <div class="meter-track"><span id="deep-progress-fill"></span></div>
-        <div class="meter-meta"><strong id="deep-progress-text">0%</strong><span id="deep-progress-detail">等待建立索引</span></div>
       </div>
     </section>
 
@@ -125,7 +99,7 @@
           </select>
         </label>
         <div class="price-filter">
-          <span>BUFF 价格</span>
+          <div class="price-filter-head"><span>价格区间</span><select id="filter-price-basis" aria-label="价格筛选口径"><option value="buff_price">BUFF 价</option><option value="steam_price">Steam 价</option><option value="steam_net">到手价</option></select></div>
           <div><input id="filter-price-min" type="number" min="0" step="1" placeholder="最低"><i>—</i><input id="filter-price-max" type="number" min="0" step="1" placeholder="最高"></div>
         </div>
         <label class="filter-field sort-field"><span>排序</span>
@@ -205,10 +179,10 @@
       <span class="warning-icon large">!</span>
       <span class="panel-code">LONG-RUN TASK</span>
       <h2 id="deep-modal-title">启动全市场深度扫描？</h2>
-      <p id="deep-modal-copy" class="muted">这不是一次快速搜索。应用会索引 BUFF 全市场，再逐件查询 Steam 价格，可能持续数小时至数天。</p>
+      <p id="deep-modal-copy" class="muted">这不是一次快速搜索。应用会索引 BUFF 全市场、缓存图片资产，再逐件查询 Steam 价格，可能持续数小时至数天。</p>
       <ul class="warning-list">
-        <li>每个索引页和每件定价结果都会写入 SQLite 检查点</li>
-        <li>可以随时暂停；重启应用后再次点击即可续传</li>
+        <li>每个索引页、商品图片和定价结果都会写入 SQLite</li>
+        <li>可以随时终止；重启应用后再次点击即可续传</li>
         <li>立即扫描会优先执行，完成后自动恢复深度任务</li>
       </ul>
       <div class="modal-actions">

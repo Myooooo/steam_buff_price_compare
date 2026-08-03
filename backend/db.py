@@ -39,6 +39,14 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE INDEX IF NOT EXISTS idx_items_discount ON items(discount);
 CREATE INDEX IF NOT EXISTS idx_items_source ON items(source);
 
+CREATE TABLE IF NOT EXISTS item_assets (
+  market_hash_name TEXT PRIMARY KEY,
+  icon_url TEXT,
+  mime_type TEXT NOT NULL,
+  image_data BLOB NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS price_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   market_hash_name TEXT NOT NULL,
@@ -116,6 +124,65 @@ _ITEM_MIGRATIONS = {
 
 def now_iso() -> str:
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _upsert_asset(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
+    image_data = item.get("icon_data")
+    mime_type = item.get("icon_mime")
+    if not isinstance(image_data, bytes) or not image_data or not mime_type:
+        return
+    conn.execute(
+        """INSERT INTO item_assets
+           (market_hash_name, icon_url, mime_type, image_data, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(market_hash_name) DO UPDATE SET
+             icon_url = excluded.icon_url,
+             mime_type = excluded.mime_type,
+             image_data = excluded.image_data,
+             updated_at = excluded.updated_at""",
+        (
+            item["market_hash_name"],
+            item.get("icon_url"),
+            mime_type,
+            image_data,
+            item.get("updated_at", now_iso()),
+        ),
+    )
+
+
+def save_assets(conn: sqlite3.Connection, items: list[dict[str, Any]]) -> int:
+    """保存已下载的图片资产，返回实际带图片数据的商品数。"""
+    assets = [item for item in items if isinstance(item.get("icon_data"), bytes) and item["icon_data"]]
+    with conn:
+        for item in assets:
+            _upsert_asset(conn, item)
+    return len(assets)
+
+
+def missing_asset_names(conn: sqlite3.Connection, items: list[dict[str, Any]]) -> set[str]:
+    """找出没有本地图片，或图片 URL 已变化的商品。"""
+    candidates = {
+        item["market_hash_name"]: item.get("icon_url")
+        for item in items
+        if item.get("market_hash_name") and item.get("icon_url")
+    }
+    if not candidates:
+        return set()
+    placeholders = ",".join("?" for _ in candidates)
+    rows = conn.execute(
+        f"SELECT market_hash_name, icon_url FROM item_assets WHERE market_hash_name IN ({placeholders})",
+        list(candidates),
+    ).fetchall()
+    cached = {row[0]: row[1] for row in rows}
+    return {name for name, url in candidates.items() if cached.get(name) != url}
+
+
+def get_item_asset(conn: sqlite3.Connection, market_hash_name: str) -> Optional[dict[str, Any]]:
+    row = conn.execute(
+        "SELECT mime_type, image_data, updated_at FROM item_assets WHERE market_hash_name = ?",
+        (market_hash_name,),
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -211,6 +278,7 @@ def _insert_history(conn: sqlite3.Connection, item: dict[str, Any]) -> None:
 def save_item(conn: sqlite3.Connection, item: dict[str, Any], scan_id: Optional[int] = None) -> None:
     """原子保存当前快照及对应历史点。"""
     with conn:
+        _upsert_asset(conn, item)
         _upsert_item(conn, item, scan_id=scan_id)
         _insert_history(conn, item)
 
@@ -256,6 +324,7 @@ def query_items(
     weapon: Optional[str] = None,
     item_type: Optional[str] = None,
     exterior: Optional[str] = None,
+    price_basis: str = "buff_price",
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     only_profitable: bool = False,
@@ -278,11 +347,17 @@ def query_items(
         if value:
             conds.append(f"{column} = ?")
             args.append(value)
+    price_columns = {
+        "buff_price": "buff_price",
+        "steam_price": "steam_price",
+        "steam_net": "steam_net",
+    }
+    price_column = price_columns.get(price_basis, "buff_price")
     if min_price is not None:
-        conds.append("buff_price >= ?")
+        conds.append(f"{price_column} >= ?")
         args.append(min_price)
     if max_price is not None:
-        conds.append("buff_price <= ?")
+        conds.append(f"{price_column} <= ?")
         args.append(max_price)
     if only_profitable:
         conds.append("discount IS NOT NULL AND discount > 0 AND discount <= 1.0")
@@ -332,7 +407,11 @@ def query_items(
 def item_facets(conn: sqlite3.Connection) -> dict[str, list[str]]:
     def values(column: str) -> list[str]:
         rows = conn.execute(
-            f"SELECT DISTINCT {column} FROM items WHERE {column} IS NOT NULL AND {column} != '' ORDER BY {column}"
+            f"""SELECT DISTINCT value FROM (
+                  SELECT {column} AS value FROM items
+                  UNION ALL
+                  SELECT {column} AS value FROM deep_scan_index
+                ) WHERE value IS NOT NULL AND value != '' ORDER BY value"""
         ).fetchall()
         return [row[0] for row in rows]
 
@@ -481,6 +560,7 @@ def save_deep_index_page(
                 [game, generation, *names],
             ).fetchone()[0]
         for item in unique_items:
+            _upsert_asset(conn, item)
             conn.execute(
                 """INSERT INTO deep_scan_index
                    (game, market_hash_name, generation, buff_goods_id, display_name,

@@ -103,6 +103,7 @@ function renderScan() {
   else if (status === "login_required") result.textContent = "会话失效，请重新扫码登录";
   else if (scan.last_status === "error") result.textContent = `错误 · ${scan.last_error || "未知异常"}`;
   else if (scan.last_status === "paused") result.textContent = "深度任务已保存检查点并暂停";
+  else if (scan.last_status === "cancelled") result.textContent = "扫描已终止";
   else if (scan.last_status === "ok") {
     const mode = scan.last_mode === "deepscan" ? "深度扫描" : "关键词扫描";
     result.textContent = `${mode} · ${numberFmt.format(scan.last_item_count || 0)} 件 · ${scan.last_duration_sec || 0}s`;
@@ -110,8 +111,9 @@ function renderScan() {
 
   const quick = $("btn-scan");
   const quickRunning = status === "scanning" && scan.current_mode === "keyword";
-  quick.querySelector("strong").textContent = quickRunning ? "正在扫描" : (scan.current_mode === "deepscan" ? "优先立即扫描" : "立即扫描");
-  quick.querySelector("small").textContent = scan.current_mode === "deepscan" ? "将在安全检查点插队" : "关键词 · 全部搜索分页";
+  quick.classList.toggle("is-stop", quickRunning);
+  quick.querySelector("strong").textContent = quickRunning ? "终止立即扫描" : (scan.current_mode === "deepscan" ? "优先立即扫描" : "立即扫描");
+  quick.querySelector("small").textContent = quickRunning ? "停止当前关键词任务" : (scan.current_mode === "deepscan" ? "将在安全检查点插队" : "关键词 · 全部搜索分页");
 }
 
 function currentProgressText(scan) {
@@ -146,6 +148,7 @@ function renderDeepProgress() {
     detail.textContent = "等待建立全市场索引";
     button.querySelector("strong").textContent = "深度扫描";
     button.querySelector("small").textContent = "全市场索引 · 断点续传";
+    button.classList.remove("is-stop");
     return;
   }
 
@@ -163,8 +166,9 @@ function renderDeepProgress() {
     detail.textContent = `已索引 ${numberFmt.format(deep.indexed_count || 0)} · 成功定价 ${numberFmt.format(deep.priced_count || 0)}`;
   }
 
-  button.querySelector("strong").textContent = active || queued ? "暂停深度扫描" : (deep.resumable ? "继续深度扫描" : "刷新全量索引");
-  button.querySelector("small").textContent = active ? "进度已持续写入 SQLite" : (queued ? "普通扫描后将自动恢复" : (deep.resumable ? "从上次检查点继续" : "开始新一轮全市场刷新"));
+  button.classList.toggle("is-stop", active);
+  button.querySelector("strong").textContent = active ? "终止深度扫描" : (queued ? "取消深度扫描" : (deep.resumable ? "继续深度扫描" : "刷新全量索引"));
+  button.querySelector("small").textContent = active ? "已保存进度，终止后可续传" : (queued ? "取消等待恢复的任务" : (deep.resumable ? "从上次检查点继续" : "开始新一轮全市场刷新"));
 }
 
 /* ---------- 商品查询与筛选 ---------- */
@@ -177,6 +181,7 @@ function filterParams(page) {
     exterior: $("filter-exterior").value,
     data_state: $("filter-freshness").value,
     source: $("filter-source").value,
+    price_basis: $("filter-price-basis").value,
     min_price: $("filter-price-min").value,
     max_price: $("filter-price-max").value,
   };
@@ -248,7 +253,7 @@ function renderTable() {
       <td class="rank-col">${(state.list.page - 1) * state.list.page_size + index + 1}</td>
       <td class="item-cell">
         <a class="item-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">
-          <span class="item-image">${item.icon_url ? `<img src="${esc(item.icon_url)}" alt="" loading="lazy">` : ""}</span>
+          <span class="item-image">${item.icon_url ? `<img src="${esc(localImageUrl(item.market_hash_name))}" alt="" loading="lazy">` : ""}</span>
           <span class="item-copy">
             <strong title="${esc(displayName)}">${esc(displayName)}</strong>
             <small title="${esc(marketName)}">${esc(marketName)}</small>
@@ -271,6 +276,8 @@ function renderTable() {
     row.addEventListener("keydown", (event) => { if (event.key === "Enter") openItem(); });
     tbody.appendChild(row);
     const sparkCell = row.querySelector(".spark-cell");
+    const image = row.querySelector(".item-image img");
+    if (image) image.addEventListener("error", () => image.remove(), { once: true });
     sparkCell.dataset.name = item.market_hash_name;
     if (state.sparkObserver) state.sparkObserver.observe(sparkCell);
     else ensureSparkline(item.market_hash_name, sparkCell);
@@ -285,6 +292,7 @@ function scheduleFilterRefresh() {
 function resetFilters() {
   ["filter-keyword", "filter-price-min", "filter-price-max"].forEach((id) => { $(id).value = ""; });
   ["filter-weapon", "filter-type", "filter-exterior", "filter-freshness", "filter-source"].forEach((id) => { $(id).value = ""; });
+  $("filter-price-basis").value = "buff_price";
   $("filter-sort").value = "discount:asc";
   $("only-profitable").checked = true;
   refreshItems({ page: 1 });
@@ -338,20 +346,28 @@ async function triggerScan(mode) {
   } catch (error) { toast(error.message || "触发扫描失败", "error"); }
 }
 
+async function cancelScan(mode) {
+  try {
+    await api("/api/scan/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    toast(mode === "deepscan" ? "深度扫描已终止，检查点保留" : "立即扫描已终止");
+  } catch (error) { toast(error.message || "终止扫描失败", "error"); }
+}
+
 async function handleDeepAction() {
   const deep = state.scan.deep_scan;
   if (deep && (deep.active || deep.queued)) {
-    try {
-      await api("/api/scan/deep/pause", { method: "POST" });
-      toast("深度扫描已暂停，检查点已保存");
-    } catch (error) { toast(error.message, "error"); }
+    await cancelScan("deepscan");
     return;
   }
   const resumable = deep && deep.resumable;
   $("deep-modal-title").textContent = resumable ? "从检查点继续深度扫描？" : (deep && deep.phase === "complete" ? "刷新全市场索引？" : "启动全市场深度扫描？");
   $("deep-modal-copy").textContent = resumable
     ? `将从第 ${deep.next_page || 1} 页或上次未完成的定价项继续，不会重置已有进度。`
-    : "这不是一次快速搜索。应用会索引 BUFF 全市场，再逐件查询 Steam 价格，可能持续数小时至数天。";
+    : "这不是一次快速搜索。应用会索引 BUFF 全市场、缓存图片资产，再逐件查询 Steam 价格，可能持续数小时至数天。";
   openModal("deep-modal");
 }
 
@@ -440,6 +456,7 @@ function fmtTime(iso) {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 function fallbackBuffUrl(name) { return `https://buff.163.com/market/csgo#tab=selling&search=${encodeURIComponent(name || "")}`; }
+function localImageUrl(name) { return `/api/items/image/${encodeURIComponent(name || "")}`; }
 function toast(message, kind = "info") {
   const element = $("scan-msg");
   const token = `${Date.now()}`;
@@ -476,7 +493,10 @@ document.addEventListener("DOMContentLoaded", () => {
     try { await api("/api/auth/logout", { method: "POST" }); toast("已退出 BUFF 会话"); }
     catch (error) { toast(`登出失败：${error.message}`, "error"); }
   });
-  $("btn-scan").addEventListener("click", () => triggerScan("keyword"));
+  $("btn-scan").addEventListener("click", () => {
+    if (state.scan.state === "scanning" && state.scan.current_mode === "keyword") cancelScan("keyword");
+    else triggerScan("keyword");
+  });
   $("btn-deepscan").addEventListener("click", handleDeepAction);
   $("btn-deep-confirm").addEventListener("click", () => { closeModal("deep-modal"); triggerScan("deepscan"); });
   $("btn-deep-cancel").addEventListener("click", () => closeModal("deep-modal"));
@@ -484,7 +504,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btn-settings-cancel").addEventListener("click", () => closeModal("settings-modal"));
   $("settings-form").addEventListener("submit", saveSettings);
 
-  ["filter-weapon", "filter-type", "filter-exterior", "filter-freshness", "filter-source", "filter-sort", "only-profitable"].forEach((id) => $(id).addEventListener("change", () => refreshItems({ page: 1 })));
+  ["filter-weapon", "filter-type", "filter-exterior", "filter-freshness", "filter-source", "filter-price-basis", "filter-sort", "only-profitable"].forEach((id) => $(id).addEventListener("change", () => refreshItems({ page: 1 })));
   ["filter-keyword", "filter-price-min", "filter-price-max"].forEach((id) => $(id).addEventListener("input", scheduleFilterRefresh));
   $("btn-filter-reset").addEventListener("click", resetFilters);
   $("btn-page-prev").addEventListener("click", () => refreshItems({ page: state.list.page - 1 }));

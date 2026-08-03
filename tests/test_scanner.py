@@ -20,6 +20,7 @@ class FakeBuff:
         self.fail = fail
         self.deep = deep or {"items": [], "total_page": 1}
         self.search_calls = []
+        self.asset_calls = []
 
     async def search_goods(self, keyword, game="csgo", page_num=1, page_size=20):
         if self.fail:
@@ -47,6 +48,10 @@ class FakeBuff:
             result = self.deep[page_num - 1] if page_num <= len(self.deep) else {"items": []}
             return {**result, "page_num": page_num, "total_page": len(self.deep)}
         return self.deep
+
+    async def fetch_asset(self, url):
+        self.asset_calls.append(url)
+        return (b"fake-image", "image/webp") if url else None
 
 
 class FakeSteam:
@@ -163,6 +168,36 @@ def test_keyword_scan_fetches_every_page_and_deduplicates():
         assert buff.search_calls == [("ak", 1), ("ak", 2)]
         assert scanner.last_item_count == 3
         assert len(db.list_items(conn)) == 3
+        conn.close()
+
+    asyncio.run(scenario())
+
+
+def test_keyword_pull_caches_image_even_without_steam_price():
+    async def scenario():
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
+        db.init_db(conn)
+        raw = make_item(
+            "Sticker | Test",
+            10,
+            {"goods_info": {"icon_url": "https://example.com/test.webp"}},
+        )
+        buff = FakeBuff({"sticker": [raw]})
+        scanner = Scanner(
+            buff,
+            FakeSteam(),
+            conn,
+            asyncio.Lock(),
+            lambda: make_cfg(keywords=["sticker"]),
+        )
+
+        await scanner.request_scan("keyword")
+        await wait_idle(scanner)
+
+        assert buff.asset_calls == ["https://example.com/test.webp"]
+        asset = db.get_item_asset(conn, "Sticker | Test")
+        assert asset["image_data"] == b"fake-image"
+        assert db.list_items(conn) == []
         conn.close()
 
     asyncio.run(scenario())
@@ -344,6 +379,39 @@ def test_stop_cancels_active_scan_and_finishes_record():
         assert scanner.last_status == "cancelled"
         assert scan["status"] == "cancelled"
         assert scan["finished_at"] is not None
+        conn.close()
+
+    asyncio.run(scenario())
+
+
+def test_cancel_scan_targets_active_mode():
+    async def scenario():
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
+        db.init_db(conn)
+
+        class BlockingSteam(FakeSteam):
+            async def get(self, url, params=None, timeout=15):
+                await asyncio.sleep(60)
+
+        scanner = Scanner(
+            FakeBuff({"ak": [make_item("AK-47 | Redline", 200)]}),
+            BlockingSteam(),
+            conn,
+            asyncio.Lock(),
+            lambda: make_cfg(keywords=["ak"]),
+        )
+        await scanner.request_scan("keyword")
+        for _ in range(50):
+            if scanner.current_mode == "keyword":
+                break
+            await asyncio.sleep(0.01)
+
+        assert await scanner.cancel_scan("deepscan") is False
+        assert await scanner.cancel_scan("keyword") is True
+        assert scanner.running is False
+        assert scanner.last_status == "cancelled"
+        scan = conn.execute("SELECT * FROM scans ORDER BY id DESC LIMIT 1").fetchone()
+        assert scan["status"] == "cancelled"
         conn.close()
 
     asyncio.run(scenario())

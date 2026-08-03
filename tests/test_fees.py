@@ -100,6 +100,20 @@ def test_normalize_item_null_price():
     assert item2["buff_price"] is None
 
 
+def test_normalize_item_does_not_expose_internal_category_as_weapon():
+    item = normalize_item({
+        "market_hash_name": "Sticker | Test",
+        "sell_min_price": "1",
+        "goods_info": {"info": {"tags": {
+            "type": {"localized_name": "印花"},
+            "category": {"name": "sticker_tournament27"},
+        }}},
+    })
+    assert item["item_type"] == "印花"
+    assert item["weapon"] is None
+    assert item["category"] is None
+
+
 def test_to_float():
     assert to_float("12.5") == 12.5
     assert to_float(12) == 12.0

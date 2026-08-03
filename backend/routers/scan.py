@@ -31,6 +31,17 @@ async def scan_status() -> dict[str, Any]:
     return app_state.scanner.status()
 
 
+@router.post("/stop")
+async def stop_scan(req: ScanRequest) -> dict[str, Any]:
+    """终止指定模式；深度扫描的已落库检查点仍可继续。"""
+    if app_state.scanner is None:
+        raise HTTPException(status_code=503, detail="扫描器未就绪")
+    cancelled = await app_state.scanner.cancel_scan(req.mode)
+    if not cancelled:
+        raise HTTPException(status_code=409, detail="对应扫描模式当前未运行或排队")
+    return {"ok": True, "cancelled": True, "mode": req.mode}
+
+
 @router.post("/deep/pause")
 async def pause_deep_scan() -> dict[str, Any]:
     """暂停长时间运行的深度扫描，已落库检查点不会丢失。"""

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from .. import db
 from ..state import app_state
@@ -17,6 +17,7 @@ async def list_items(
     weapon: Optional[str] = Query(None, max_length=80),
     item_type: Optional[str] = Query(None, max_length=80),
     exterior: Optional[str] = Query(None, max_length=80),
+    price_basis: Literal["buff_price", "steam_price", "steam_net"] = Query("buff_price"),
     min_price: Optional[float] = Query(None, ge=0),
     max_price: Optional[float] = Query(None, ge=0),
     only_profitable: bool = Query(False, alias="only_profitable"),
@@ -37,6 +38,7 @@ async def list_items(
         weapon=weapon,
         item_type=item_type,
         exterior=exterior,
+        price_basis=price_basis,
         min_price=min_price,
         max_price=max_price,
         only_profitable=only_profitable,
@@ -48,6 +50,19 @@ async def list_items(
         page_size=page_size,
     )
     return {**result, "facets": db.item_facets(app_state.db_conn), "ts": db.now_iso()}
+
+
+@router.get("/image/{name:path}")
+async def item_image(name: str) -> Response:
+    """从 SQLite 返回扫描时缓存的商品图片。"""
+    asset = db.get_item_asset(app_state.db_conn, name)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="图片资产尚未缓存")
+    return Response(
+        content=asset["image_data"],
+        media_type=asset["mime_type"],
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.get("/{name:path}/history")

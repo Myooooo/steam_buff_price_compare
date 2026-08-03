@@ -31,7 +31,7 @@ def item(name, scan_id, **overrides):
 
 def test_query_items_filters_sorts_and_marks_freshness():
     conn = make_conn()
-    first, first_scan = item("AK-47 | Redline", 1, buff_price=120.0)
+    first, first_scan = item("AK-47 | Redline", 1, buff_price=120.0, steam_price=90.0, steam_net=76.0)
     second, second_scan = item(
         "M4A1-S | Printstream",
         2,
@@ -59,7 +59,31 @@ def test_query_items_filters_sorts_and_marks_freshness():
     assert result["items"][0]["data_state"] == "latest"
     cached = db.query_items(conn, data_state="cached")
     assert [row["market_hash_name"] for row in cached["items"]] == ["AK-47 | Redline"]
+    steam_filtered = db.query_items(conn, price_basis="steam_price", min_price=150, max_price=220)
+    assert [row["market_hash_name"] for row in steam_filtered["items"]] == ["M4A1-S | Printstream"]
+    net_filtered = db.query_items(conn, price_basis="steam_net", max_price=100)
+    assert [row["market_hash_name"] for row in net_filtered["items"]] == ["AK-47 | Redline"]
     assert "M4A1-S" in db.item_facets(conn)["weapons"]
+    conn.close()
+
+
+def test_item_assets_are_stored_separately_and_refreshed_by_url():
+    conn = make_conn()
+    value, scan_id = item(
+        "AK-47 | Redline",
+        1,
+        icon_url="https://example.com/one.webp",
+        icon_data=b"webp-data",
+        icon_mime="image/webp",
+    )
+    db.save_item(conn, value, scan_id=scan_id)
+
+    asset = db.get_item_asset(conn, value["market_hash_name"])
+    assert asset["mime_type"] == "image/webp"
+    assert asset["image_data"] == b"webp-data"
+    assert db.missing_asset_names(conn, [value]) == set()
+    changed = {**value, "icon_url": "https://example.com/two.webp"}
+    assert db.missing_asset_names(conn, [changed]) == {value["market_hash_name"]}
     conn.close()
 
 

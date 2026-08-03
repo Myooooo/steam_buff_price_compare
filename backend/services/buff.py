@@ -29,6 +29,7 @@ logger = logging.getLogger("buff")
 BASE_URL = "https://buff.163.com"
 LOGIN_REQUIRED = "Login Required"
 LOGIN_COMPLETE_STATE = 2
+MAX_ICON_BYTES = 2 * 1024 * 1024
 
 
 class LoginRequiredError(Exception):
@@ -268,6 +269,21 @@ class BuffClient:
             "total_count": int(data.get("total_count") or 0),
         }
 
+    async def fetch_asset(self, url: Optional[str]) -> Optional[tuple[bytes, str]]:
+        """下载商品图片，拒绝非图片响应和异常大的资产。"""
+        if not url:
+            return None
+        response = await self._request("GET", url, raw=True, max_retries=2)
+        mime_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if not mime_type.startswith("image/"):
+            logger.warning("忽略非图片商品资产: %s (%s)", url, mime_type or "unknown")
+            return None
+        content = response.content
+        if not content or len(content) > MAX_ICON_BYTES:
+            logger.warning("忽略异常大小的商品资产: %s (%d bytes)", url, len(content))
+            return None
+        return content, mime_type
+
 
 def _retry_after(resp: httpx.Response) -> int:
     try:
@@ -297,8 +313,10 @@ def normalize_item(raw: dict[str, Any], game: str = "csgo", source: str = "keywo
     tags = ((goods_info.get("info") or {}).get("tags") or {})
 
     def tag(name: str) -> Optional[str]:
-        value = tags.get(name) or {}
-        return value.get("localized_name") or None
+        value = tags.get(name)
+        if isinstance(value, dict):
+            return value.get("localized_name") or None
+        return value if isinstance(value, str) and value else None
 
     goods_id = raw.get("id")
     market_hash_name = raw.get("market_hash_name") or raw.get("name") or goods_id

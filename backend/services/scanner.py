@@ -117,6 +117,43 @@ class Scanner:
             return True
         return False
 
+    async def cancel_scan(self, mode: str) -> bool:
+        """终止指定模式；另一模式已排队时继续执行，不丢深度检查点。"""
+        if not (self.running and self.current_mode == mode):
+            cancelled = False
+            if self.pending == mode:
+                self.pending = None
+                cancelled = True
+            if mode == "deepscan" and self._resume_deep:
+                self._resume_deep = False
+                cancelled = True
+            if cancelled:
+                await self._emit("scan_cancelled", {"mode": mode})
+            return cancelled
+
+        task = self._task
+        next_mode = self.pending if self.pending != mode else None
+        resume_deep = self._resume_deep and mode != "deepscan"
+        self.pending = None
+        self._resume_deep = False
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._task = None
+        self.current_mode = None
+        if self.state == "scanning":
+            self.state = "idle"
+        await self._emit("scan_cancelled", {"mode": mode})
+
+        if next_mode is None and resume_deep:
+            next_mode = "deepscan"
+        if next_mode:
+            self._task = asyncio.create_task(self._run_worker(next_mode))
+        return True
+
     async def stop(self) -> None:
         task = self._task
         self.pending = None
@@ -243,11 +280,15 @@ class Scanner:
                     page_size=cfg.page_size,
                 )
                 total_pages = max(1, int(result.get("total_page") or 1))
+                page_items = []
                 for raw in result.get("items") or []:
                     item = normalize_item(raw, game=cfg.game, source="keyword")
                     name = item["market_hash_name"]
+                    if name:
+                        page_items.append(item)
                     if name and item["buff_price"] is not None:
                         seen.setdefault(name, item)
+                await self._cache_assets(page_items, persist=True)
                 self.progress = {
                     "mode": "keyword",
                     "phase": "collecting",
@@ -301,6 +342,7 @@ class Scanner:
                     item = normalize_item(raw, game=cfg.game, source="deepscan")
                     if item["market_hash_name"]:
                         normalized.append(item)
+                await self._cache_assets(normalized)
                 async with self.db_lock:
                     progress = db.save_deep_index_page(
                         self.db_conn,
@@ -343,6 +385,35 @@ class Scanner:
                 await self._emit_progress()
             if self.pending == "keyword":
                 raise DeepScanPreempted
+
+    async def _cache_assets(self, items: list[dict[str, Any]], *, persist: bool = False) -> None:
+        """并发下载缺失图片；失败只影响图片，不中断价格扫描。"""
+        fetch_asset = getattr(self.buff, "fetch_asset", None)
+        if not items or fetch_asset is None:
+            return
+        async with self.db_lock:
+            missing = db.missing_asset_names(self.db_conn, items)
+        targets = [item for item in items if item.get("market_hash_name") in missing]
+        if not targets:
+            return
+
+        semaphore = asyncio.Semaphore(4)
+
+        async def fetch(item: dict[str, Any]) -> None:
+            try:
+                async with semaphore:
+                    asset = await fetch_asset(item.get("icon_url"))
+                if asset:
+                    item["icon_data"], item["icon_mime"] = asset
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.warning("商品图片下载失败: %s", item.get("market_hash_name"), exc_info=True)
+
+        await asyncio.gather(*(fetch(item) for item in targets))
+        if persist:
+            async with self.db_lock:
+                db.save_assets(self.db_conn, targets)
 
     async def _price_item(self, item: dict[str, Any], cfg: Config, scan_id: int) -> bool:
         price = await steam_svc.get_price(
