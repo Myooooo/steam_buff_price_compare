@@ -10,8 +10,8 @@ import math
 from typing import Any, Optional
 
 
-DISCOUNT_WEIGHT = 0.55
-LIQUIDITY_WEIGHT = 0.45
+DISCOUNT_WEIGHT = 0.60
+LIQUIDITY_WEIGHT = 0.40
 DEPTH_SHARE = 0.65
 SPREAD_SHARE = 0.35
 LISTING_CAP = 1000
@@ -36,6 +36,18 @@ def _log_liquidity(count: Optional[int]) -> float:
     return _clamp(math.log1p(count) / math.log1p(LISTING_CAP))
 
 
+def _discount_quality(discount: float) -> float:
+    """以 5 折为最优点，非线性惩罚过低异常值和接近亏损的报价。"""
+    if discount < 0.50:
+        # 平方根在接近 0 时斜率更高，使极低、易失真的折价快速失分。
+        return math.sqrt(_clamp(discount / 0.50))
+    if discount < 1.0:
+        # 二次惩罚在接近 10 折时斜率更高。
+        normalized = (discount - 0.50) / 0.50
+        return 1.0 - normalized**2
+    return 0.0
+
+
 def opportunity_score_breakdown(
     discount: Optional[float],
     buff_sell_num: Optional[int],
@@ -46,7 +58,7 @@ def opportunity_score_breakdown(
     if discount is None or discount <= 0:
         return None
 
-    discount_quality = _clamp((1.0 - discount) / 0.35)
+    discount_quality = _discount_quality(discount)
     spread_quality = 0.0 if spread is None else _clamp((0.20 - spread) / 0.18)
 
     buff_depth = _log_liquidity(buff_sell_num)

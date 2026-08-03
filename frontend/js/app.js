@@ -296,12 +296,13 @@ function scoreTooltip(item) {
   const steamDepth = item.steam_sell_num == null ? "—" : numberFmt.format(item.steam_sell_num);
   return [
     `总分 ${detail.score.toFixed(1)} / 100`,
-    `折价质量 ${detail.discount_quality.toFixed(1)} / 100 · 权重 55% · ${discount}`,
-    `流动性质量 ${detail.liquidity_quality.toFixed(1)} / 100 · 权重 45%`,
+    `折价质量 ${detail.discount_quality.toFixed(1)} / 100 · 权重 60% · ${discount}`,
+    `流动性质量 ${detail.liquidity_quality.toFixed(1)} / 100 · 权重 40%`,
     `挂牌深度 ${detail.depth_quality.toFixed(1)} / 100 · 流动性内占 65% · BUFF ${buffDepth} · Steam ${steamDepth}`,
     `买卖价差 ${detail.spread_quality.toFixed(1)} / 100 · 流动性内占 35% · ${spread}`,
     `深度合成：${depthRules[detail.depth_source] || depthRules.none}`,
-    "总分 = 100 × 折价质量^0.55 × 流动性质量^0.45",
+    "折价质量：5 折满分；低于 5 折按平方根曲线惩罚异常值；5–10 折按二次曲线加速扣分；≥ 10 折为 0",
+    "总分 = 100 × 折价质量^0.60 × 流动性质量^0.40",
   ].join("\n");
 }
 

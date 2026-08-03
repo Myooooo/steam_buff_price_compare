@@ -9,7 +9,7 @@ def test_spread_pct_uses_buff_best_bid_and_ask():
 
 
 def test_score_is_bounded_and_rewards_better_opportunities():
-    strong = opportunity_score(0.65, 1000, 1000, 0.02)
+    strong = opportunity_score(0.50, 1000, 1000, 0.02)
     weak = opportunity_score(0.95, 5, 10, 0.18)
     assert strong == 100.0
     assert weak is not None
@@ -40,11 +40,40 @@ def test_score_breakdown_explains_liquidity_source_and_points():
 
 
 def test_low_listing_depth_cannot_be_fully_offset_by_discount():
-    thin = opportunity_score(0.65, 1, None, 0.02)
-    deep = opportunity_score(0.65, 1000, None, 0.02)
+    thin = opportunity_score(0.50, 1, None, 0.02)
+    deep = opportunity_score(0.50, 1000, None, 0.02)
     assert thin is not None and deep is not None
     assert thin < 75
     assert deep == 100
+
+
+def test_discount_quality_peaks_at_half_price_and_penalizes_both_sides():
+    qualities = {
+        discount: opportunity_score_breakdown(discount, 1000, 1000, 0.02)[
+            "discount_quality"
+        ]
+        for discount in (0.01, 0.10, 0.25, 0.50, 0.75, 0.90, 1.00, 1.10)
+    }
+    assert qualities == {
+        0.01: 14.1,
+        0.10: 44.7,
+        0.25: 70.7,
+        0.50: 100.0,
+        0.75: 75.0,
+        0.90: 36.0,
+        1.00: 0.0,
+        1.10: 0.0,
+    }
+
+
+def test_discount_penalty_accelerates_near_zero_and_break_even():
+    def quality(discount):
+        return opportunity_score_breakdown(discount, 1000, 1000, 0.02)[
+            "discount_quality"
+        ]
+
+    assert quality(0.02) - quality(0.01) > quality(0.41) - quality(0.40)
+    assert quality(0.90) - quality(0.95) > quality(0.55) - quality(0.60)
 
 
 def test_score_requires_discount():
