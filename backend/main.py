@@ -72,6 +72,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async def on_scan_update(event: str, _payload: dict) -> None:
         if event == "login_required":
             await app_state.refresh_login()
+        if event == "item_updated":
+            await app_state.broadcast({"type": "item_updated", **_payload})
         await app_state.broadcast(app_state.snapshot())
 
     scanner = Scanner(

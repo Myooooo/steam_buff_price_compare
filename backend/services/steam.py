@@ -125,7 +125,16 @@ async def get_price(
             resp = await session.get(url, params=params, timeout=15.0)
             if resp.status_code in (429, 500, 502, 503, 504):
                 retry_after = int(resp.headers.get("Retry-After", "0")) if resp.headers else 0
-                await asyncio.sleep(max(2 ** (attempt + 1), retry_after))
+                wait_seconds = max(2 ** (attempt + 1), retry_after)
+                logger.warning(
+                    "Steam 价格查询暂缓 HTTP %s: %s，%s 秒后重试 (%d/%d)",
+                    resp.status_code,
+                    market_hash_name,
+                    wait_seconds,
+                    attempt + 1,
+                    max_retries,
+                )
+                await asyncio.sleep(wait_seconds)
                 continue
             if resp.status_code != 200:
                 logger.warning("Steam 价格请求 HTTP %s: %s", resp.status_code, market_hash_name)
@@ -135,4 +144,5 @@ async def get_price(
         except Exception as e:  # noqa: BLE001 - curl_cffi 异常类型繁杂，统一退避
             logger.debug("Steam 价格请求异常(%s): %s", market_hash_name, e)
             await asyncio.sleep(2 ** attempt)
+    logger.warning("Steam 价格查询重试耗尽: %s", market_hash_name)
     return None

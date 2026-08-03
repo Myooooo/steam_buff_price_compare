@@ -14,6 +14,7 @@ const state = {
   sparkObserver: null,
   itemRequestId: 0,
   filterTimer: null,
+  liveItemTimer: null,
   hasSnapshot: false,
 };
 
@@ -45,6 +46,10 @@ function handleMessage(message) {
   if (message.type === "snapshot") applySnapshot(message);
   else if (message.type === "qr") handleQR(message);
   else if (message.type === "config") state.config = message.config || {};
+  else if (message.type === "item_updated") {
+    if (message.market_hash_name) state.historyCache.delete(message.market_hash_name);
+    scheduleLiveItemRefresh();
+  }
 }
 
 function applySnapshot(snapshot) {
@@ -127,28 +132,56 @@ function currentProgressText(scan) {
   if (progress.phase === "collecting") {
     return `${progress.keyword || "关键词"} · 第 ${progress.page || 1}/${progress.total_pages || 1} 页 · ${numberFmt.format(progress.candidates || 0)} 个候选`;
   }
-  if (progress.phase === "pricing") return `查询 Steam · ${progress.current || 0}/${progress.total || 0} · 已完成 ${progress.processed || 0}`;
+  if (progress.phase === "pricing") return `查询 Steam · ${progress.completed || 0}/${progress.total || 0} · 已入库 ${progress.processed || 0}`;
   return "正在初始化扫描任务";
 }
 
 function renderDeepProgress() {
-  const deep = (state.scan || {}).deep_scan;
+  const scan = state.scan || {};
+  const progress = scan.progress || {};
+  const deep = scan.deep_scan;
   const phase = $("deep-phase");
   const fill = $("deep-progress-fill");
   const percentEl = $("deep-progress-text");
   const detail = $("deep-progress-detail");
+  const label = $("monitor-progress-label");
+  const monitor = document.querySelector(".deep-monitor");
   const button = $("btn-deepscan");
   const active = !!(deep && deep.active);
   const queued = !!(deep && deep.queued);
+  const keywordPricing = scan.state === "scanning" && scan.current_mode === "keyword" && progress.phase === "pricing";
+
+  monitor.classList.toggle("steam-pricing", keywordPricing);
+  label.textContent = keywordPricing ? "Steam 价格查询进度" : "深度扫描进度";
+
+  if (deep) {
+    button.classList.toggle("is-stop", active);
+    button.querySelector("strong").textContent = active ? "终止深度扫描" : (queued ? "取消深度扫描" : (deep.resumable ? "继续深度扫描" : "刷新全量索引"));
+    button.querySelector("small").textContent = active ? "已保存进度，终止后可续传" : (queued ? "取消等待恢复的任务" : (deep.resumable ? "从上次检查点继续" : "开始新一轮全市场刷新"));
+  } else {
+    button.querySelector("strong").textContent = "深度扫描";
+    button.querySelector("small").textContent = "全市场索引 · 断点续传";
+    button.classList.remove("is-stop");
+  }
+
+  if (keywordPricing) {
+    const total = Number(progress.total || 0);
+    const completed = Number(progress.completed || 0);
+    const percent = total ? (completed / total) * 100 : 0;
+    phase.textContent = "查询 Steam 中";
+    fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    percentEl.textContent = `${completed} / ${total}`;
+    detail.textContent = progress.current_item
+      ? `已入库 ${numberFmt.format(progress.processed || 0)} 件 · 当前 ${progress.current_item}`
+      : `候选收集完成 · 准备查询 ${numberFmt.format(total)} 件`;
+    return;
+  }
 
   if (!deep) {
     phase.textContent = "尚未开始";
     fill.style.width = "0%";
     percentEl.textContent = "0%";
     detail.textContent = "等待建立全市场索引";
-    button.querySelector("strong").textContent = "深度扫描";
-    button.querySelector("small").textContent = "全市场索引 · 断点续传";
-    button.classList.remove("is-stop");
     return;
   }
 
@@ -165,10 +198,6 @@ function renderDeepProgress() {
   } else {
     detail.textContent = `已索引 ${numberFmt.format(deep.indexed_count || 0)} · 成功定价 ${numberFmt.format(deep.priced_count || 0)}`;
   }
-
-  button.classList.toggle("is-stop", active);
-  button.querySelector("strong").textContent = active ? "终止深度扫描" : (queued ? "取消深度扫描" : (deep.resumable ? "继续深度扫描" : "刷新全量索引"));
-  button.querySelector("small").textContent = active ? "已保存进度，终止后可续传" : (queued ? "取消等待恢复的任务" : (deep.resumable ? "从上次检查点继续" : "开始新一轮全市场刷新"));
 }
 
 /* ---------- 商品查询与筛选 ---------- */
@@ -287,6 +316,11 @@ function renderTable() {
 function scheduleFilterRefresh() {
   clearTimeout(state.filterTimer);
   state.filterTimer = setTimeout(() => refreshItems({ page: 1 }), 260);
+}
+
+function scheduleLiveItemRefresh() {
+  clearTimeout(state.liveItemTimer);
+  state.liveItemTimer = setTimeout(() => refreshItems({ page: state.list.page }), 120);
 }
 
 function resetFilters() {

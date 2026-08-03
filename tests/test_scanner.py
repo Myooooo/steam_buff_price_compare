@@ -4,6 +4,7 @@
 被 asyncio.run 关闭循环时取消。
 """
 import asyncio
+import logging
 import sqlite3
 
 import pytest
@@ -99,7 +100,9 @@ async def wait_idle(scanner):
     await asyncio.sleep(0.02)
 
 
-def test_keyword_scan_computes_prices():
+def test_keyword_scan_computes_prices(caplog):
+    caplog.set_level(logging.INFO, logger="scanner")
+
     async def scenario():
         conn = sqlite3.connect(":memory:", check_same_thread=False)
         db.init_db(conn)
@@ -115,9 +118,12 @@ def test_keyword_scan_computes_prices():
             "AK-47 | Redline (Field-Tested)": {"success": True, "lowest_price": "¥ 289.00", "volume": "91"},
         })
         events = []
+        pricing_progress = []
 
         async def on_update(ev, payload):
             events.append(ev)
+            if ev == "scan_progress" and payload.get("progress", {}).get("phase") == "pricing":
+                pricing_progress.append(dict(payload["progress"]))
 
         scanner = Scanner(buff, steam, conn, lock, lambda: cfg, on_update)
         await scanner.request_scan("keyword")
@@ -133,10 +139,24 @@ def test_keyword_scan_computes_prices():
         assert db.get_history(conn, "AK-47 | Redline (Field-Tested)") != []
         assert events[0] == "scan_start"
         assert "scan_progress" in events
+        assert "item_updated" in events
+        assert pricing_progress[0] == {
+            "mode": "keyword",
+            "phase": "pricing",
+            "current": 0,
+            "completed": 0,
+            "total": 1,
+            "processed": 0,
+            "current_item": None,
+        }
+        assert pricing_progress[-1]["completed"] == 1
+        assert pricing_progress[-1]["processed"] == 1
         assert events[-1] == "scan_done"
         conn.close()
 
     asyncio.run(scenario())
+    assert "Steam 价格查询 [1/1]" in caplog.text
+    assert "Steam 价格完成" in caplog.text
 
 
 def test_keyword_scan_fetches_every_page_and_deduplicates():

@@ -308,18 +308,55 @@ class Scanner:
 
         candidates = list(seen.values())
         processed = 0
+        total_candidates = len(candidates)
+        self.progress = {
+            "mode": "keyword",
+            "phase": "pricing",
+            "current": 0,
+            "completed": 0,
+            "total": total_candidates,
+            "processed": 0,
+            "current_item": None,
+        }
+        logger.info("BUFF 候选收集完成，开始查询 Steam 价格: %d 件", total_candidates)
+        await self._emit_progress()
+
         for index, item in enumerate(candidates, start=1):
-            if await self._price_item(item, cfg, scan_id):
+            self.progress = {
+                "mode": "keyword",
+                "phase": "pricing",
+                "current": index,
+                "completed": index - 1,
+                "total": total_candidates,
+                "processed": processed,
+                "current_item": item["market_hash_name"],
+            }
+            logger.info(
+                "Steam 价格查询 [%d/%d]: %s",
+                index,
+                total_candidates,
+                item["market_hash_name"],
+            )
+            await self._emit_progress()
+
+            success = await self._price_item(item, cfg, scan_id)
+            if success:
                 processed += 1
             self.progress = {
                 "mode": "keyword",
                 "phase": "pricing",
                 "current": index,
-                "total": len(candidates),
+                "completed": index,
+                "total": total_candidates,
                 "processed": processed,
+                "current_item": item["market_hash_name"],
             }
-            if index == len(candidates) or index % 10 == 0:
-                await self._emit_progress()
+            if success:
+                await self._emit(
+                    "item_updated",
+                    {"mode": "keyword", "market_hash_name": item["market_hash_name"]},
+                )
+            await self._emit_progress()
         return processed
 
     async def _scan_deep(self, cfg: Config, scan_id: int) -> int:
@@ -375,14 +412,34 @@ class Scanner:
                 await self._emit_progress()
                 return processed
 
+            completed = int(progress.get("priced_count") or 0) + int(progress.get("failed_count") or 0)
+            current = completed + 1
+            total = int(progress.get("indexed_count") or 0)
+            if item.get("buff_price") is None:
+                logger.info(
+                    "Steam 价格跳过 [深度 %d/%d]（BUFF 无有效价）: %s",
+                    current,
+                    total,
+                    item["market_hash_name"],
+                )
+            else:
+                logger.info(
+                    "Steam 价格查询 [深度 %d/%d]: %s",
+                    current,
+                    total,
+                    item["market_hash_name"],
+                )
             success = await self._price_deep_item(item, cfg, generation, scan_id)
             if success:
                 processed += 1
             progress = db.get_deep_progress(self.db_conn, cfg.game) or {}
             self.progress = {"mode": "deepscan", **progress}
-            completed = int(progress.get("priced_count") or 0) + int(progress.get("failed_count") or 0)
-            if completed % 10 == 0:
-                await self._emit_progress()
+            if success:
+                await self._emit(
+                    "item_updated",
+                    {"mode": "deepscan", "market_hash_name": item["market_hash_name"]},
+                )
+            await self._emit_progress()
             if self.pending == "keyword":
                 raise DeepScanPreempted
 
@@ -424,6 +481,7 @@ class Scanner:
             delay_sec=cfg.steam_delay_sec,
         )
         if price is None or not price.success or price.lowest <= 0:
+            logger.info("Steam 无有效报价: %s", item["market_hash_name"])
             return False
         net = steam_svc.steam_net(
             price.lowest,
@@ -441,6 +499,14 @@ class Scanner:
         )
         async with self.db_lock:
             db.save_item(self.db_conn, item, scan_id=scan_id)
+        logger.info(
+            "Steam 价格完成: %s | BUFF ¥%.2f | Steam ¥%.2f | 到手 ¥%.2f | %.2f 折",
+            item["market_hash_name"],
+            item["buff_price"],
+            price.lowest,
+            net,
+            item["discount"] * 10,
+        )
         return True
 
     async def _price_deep_item(
@@ -476,6 +542,16 @@ class Scanner:
                     updated_at=db.now_iso(),
                 )
                 success = True
+                logger.info(
+                    "Steam 价格完成: %s | BUFF ¥%.2f | Steam ¥%.2f | 到手 ¥%.2f | %.2f 折",
+                    item["market_hash_name"],
+                    item["buff_price"],
+                    price.lowest,
+                    net,
+                    item["discount"] * 10,
+                )
+            else:
+                logger.info("Steam 无有效报价: %s", item["market_hash_name"])
         async with self.db_lock:
             db.finish_deep_item(
                 self.db_conn,
